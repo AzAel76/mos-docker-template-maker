@@ -3,6 +3,6 @@ export default {
   displayName: "AI Template Maker",
   description: "Generate MOS Docker/Compose templates from a repository using Claude, with a MOS Hub-style install dialog.",
   icon: "mdi-robot-outline",
-  author: "TODO: your name or GitHub handle",
-  homepage: "TODO: repo URL once published"
+  author: "AzAel76",
+  homepage: "https://github.com/AzAel76/mos-docker-template-maker"
 }

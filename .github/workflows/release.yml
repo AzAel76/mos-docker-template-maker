@@ -34,6 +34,7 @@ jobs:
           mkdir -p package/page
           cp -r page/dist/. package/page/
           cp page/plugin.config.js package/page/
+          cp -r bin package/
           cp functions package/
           cp settings.json package/
           cp README.md package/ 2>/dev/null || true
