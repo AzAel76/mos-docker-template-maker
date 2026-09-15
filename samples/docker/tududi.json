@@ -1,0 +1,64 @@
+{
+  "name": "tududi",
+  "repo": "chrisvel/tududi:latest",
+  "network": "",
+  "custom_ip": "",
+  "default_shell": "",
+  "privileged": false,
+  "no_autoupdate": false,
+  "extra_parameters": "",
+  "post_parameters": "",
+  "web_ui_url": "http://[ADDRESS]:[PORT:3002]",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons@main/png/tududi.png",
+  "paths": [
+    {
+      "name": "",
+      "mode": "",
+      "host": "/mnt/cache/AppData/tududi/tududi_db",
+      "container": "/app/db",
+      "description": ""
+    },
+    {
+      "name": "",
+      "mode": "",
+      "host": "/mnt/cache/AppData/tududi/tududi_uploads",
+      "container": "/app/uploads",
+      "description": ""
+    }
+  ],
+  "ports": [
+    {
+      "name": "",
+      "protocol": "",
+      "host": "3002",
+      "container": "3002",
+      "description": ""
+    }
+  ],
+  "variables": [
+    {
+      "name": "",
+      "key": "TUDUDI_USER_EMAIL",
+      "value": "williamsoncs76@gmail.com",
+      "mask": false,
+      "description": ""
+    },
+    {
+      "name": "",
+      "key": "TUDUDI_USER_PASSWORD",
+      "value": "d3Vr4n",
+      "mask": false,
+      "description": ""
+    },
+    {
+      "name": "",
+      "key": "TUDUDI_SESSION_SECRET",
+      "value": "1a00fb5dfa20c286104d3810329ab9d96bbdaf17328a54f14701faed6c5d1b68dba374bac84442c666668829beb95f223e34eaf540d860bd910c507fcf076875",
+      "mask": false,
+      "description": ""
+    }
+  ],
+  "devices": [],
+  "labels": [],
+  "gpus": []
+}

@@ -1,0 +1,81 @@
+{
+  "name": "Jellyfin",
+  "repo": "lscr.io/linuxserver/jellyfin:latest",
+  "network": "bridge",
+  "custom_ip": "",
+  "default_shell": "sh",
+  "privileged": false,
+  "extra_parameters": "--restart=unless-stopped",
+  "post_parameters": "",
+  "web_ui_url": "http://[IP]:[PORT:8096]/",
+  "icon": "https://raw.githubusercontent.com/ich777/docker-templates/master/ich777/images/jellyfin.png",
+  "paths": [
+    {
+      "name": "Data Path",
+      "mode": "",
+      "host": "/mnt/cache/AppData/jellyfin/config",
+      "container": "/config",
+      "description": "Data path where the configurations is saved"
+    },
+    {
+      "name": "Cache",
+      "mode": "",
+      "host": "/mnt/cache/temp/Jellyfin",
+      "container": "/cache",
+      "description": "Cache path (strongly recommended to use)."
+    },
+    {
+      "name": "Media",
+      "mode": "",
+      "host": "/mnt/Data/Media",
+      "container": "/Media",
+      "description": ""
+    }
+  ],
+  "ports": [
+    {
+      "name": "http - WebGUI",
+      "protocol": "tcp",
+      "host": "8096",
+      "container": "8096",
+      "description": "WebGUI Port http."
+    }
+  ],
+  "variables": [
+    {
+      "name": "PGID",
+      "key": "PGID",
+      "value": "1000",
+      "mask": false,
+      "description": ""
+    },
+    {
+      "name": "PUID",
+      "key": "PUID",
+      "value": "1000",
+      "mask": false,
+      "description": ""
+    }
+  ],
+  "devices": [
+    {
+      "name": "GPU Passthrough",
+      "host": "/dev/dri",
+      "container": "/dev/dri",
+      "description": ""
+    }
+  ],
+  "labels": [
+    {
+      "name": "",
+      "key": "TZ",
+      "value": "Australia/Melbourne",
+      "mask": false,
+      "description": ""
+    }
+  ],
+  "gpus": [
+    "00:02.0"
+  ],
+  "no_autoupdate": false
+}

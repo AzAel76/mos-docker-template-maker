@@ -1,0 +1,21 @@
+services:
+  fileflows:
+    image: revenz/fileflows
+    restart: unless-stopped
+    ports:
+      - "19200:5000"
+    devices:
+      - "/dev/dri:/dev/dri"
+    environment:
+      - TempPathHost=/mnt/cache/AppData/FileFlows/temp
+      - BROWSER_START_DIR=/media
+      - TZ=Australia/Melbourne
+      - PUID=1000
+      - PGID=1000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /mnt/cache/AppData/FileFlows/temp:/temp
+      - /mnt/cache/AppData/FileFlows/data:/app/Data
+      - /mnt/cache/AppData/FileFlows/Temp:/app/Logs
+      - /mnt/cache/AppData/FileFlows/common:/app/common
+      - /mnt/Data/Media:/media

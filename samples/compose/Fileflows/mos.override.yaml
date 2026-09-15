@@ -1,0 +1,7 @@
+# MOS Metadata - Do not edit manually
+
+services:
+  fileflows:
+    labels:
+      mos.backend: "compose"
+      mos.stack.name: "FileFlows"

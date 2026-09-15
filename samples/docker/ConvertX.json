@@ -1,0 +1,46 @@
+{
+  "name": "ConvertX",
+  "repo": "ghcr.io/c4illin/convertx",
+  "network": "",
+  "custom_ip": "",
+  "default_shell": "",
+  "privileged": false,
+  "no_autoupdate": false,
+  "extra_parameters": "",
+  "post_parameters": "",
+  "web_ui_url": "http://[ADDRESS]:[PORT:3030]",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons@main/png/convertx.png",
+  "paths": [
+    {
+      "name": "",
+      "mode": "",
+      "host": "/mnt/cache/AppData/convertx/data",
+      "container": "/app/data"
+    }
+  ],
+  "ports": [
+    {
+      "name": "",
+      "protocol": "",
+      "host": "3030",
+      "container": "3000"
+    }
+  ],
+  "variables": [
+    {
+      "name": "",
+      "key": "JWT_SECRET",
+      "value": "zPb16IhvRoi8te6AKt2SAO8hVr83yNd4v3n5Qh3g9tn",
+      "mask": false
+    },
+    {
+      "name": "",
+      "key": "HTTP_ALLOWED",
+      "value": "true",
+      "mask": false
+    }
+  ],
+  "devices": [],
+  "labels": [],
+  "gpus": []
+}
