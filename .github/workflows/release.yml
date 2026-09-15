@@ -1,9 +1,20 @@
-name: Build and release plugin
+name: Build and release plugin .deb
 
-# NOTE: package layout below is a best guess from the MOS plugin dev guide
-# (build in CI, upload as a GitHub Release). Confirm the exact expected
-# archive layout against a real installed MOS plugin (e.g. the official
-# Backup plugin's release asset) before relying on this for a real install.
+# MOS installs a plugin from a GitHub Release, not from the git tarball
+# directly for everything: it downloads (1) a single .deb asset matching
+# the host's architecture and runs `dpkg -i` on it, and (2) the release
+# tag's auto-generated source tarball, from which it copies settings.json,
+# staticfiles/, functions, and page/plugin.config.js into place.
+#
+# That means staticfiles/ (the built page/ output) MUST already be
+# committed at the tag - this workflow does not build the frontend. Before
+# tagging a release:
+#   cd page && npm ci && npm run build
+#   rm -rf ../staticfiles && cp -r dist/. ../staticfiles/
+#   git add staticfiles page/plugin.config.js && git commit -m "..."
+#   git tag vX.Y.Z && git push && git push --tags
+# This workflow then only builds the .deb (bin/ -> /usr/bin/plugins/) and
+# attaches it (+ md5) to the release GitHub already created for the tag.
 
 on:
   push:
@@ -19,29 +30,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Build plugin page
-        working-directory: page
+      - name: Read plugin version
+        id: meta
         run: |
-          npm ci
-          npm run build
+          version=$(sed -nE 's/.*version:\s*"([^"]+)".*/\1/p' page/plugin.config.js | head -1)
+          if [ -z "$version" ]; then echo "Could not read version from page/plugin.config.js" >&2; exit 1; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Package plugin
+      - name: Build .deb
         run: |
-          mkdir -p package/page
-          cp -r page/dist/. package/page/
-          cp page/plugin.config.js package/page/
-          cp -r bin package/
-          cp functions package/
-          cp settings.json package/
-          cp README.md package/ 2>/dev/null || true
-          cd package
-          zip -r ../ai-template-maker-${{ github.ref_name }}.zip .
+          set -e
+          rm -rf deb-build
+          mkdir -p deb-build/DEBIAN deb-build/usr/bin/plugins
+          cp bin/ai-template-maker-analyze deb-build/usr/bin/plugins/ai-template-maker-analyze
+          chmod 755 deb-build/usr/bin/plugins/ai-template-maker-analyze
+          cat > deb-build/DEBIAN/control <<EOF
+          Package: ai-template-maker
+          Version: ${{ steps.meta.outputs.version }}
+          Section: utils
+          Priority: optional
+          Architecture: all
+          Depends: bash, curl, jq
+          Maintainer: AzAel76 <AzAel76@users.noreply.github.com>
+          Description: AI Template Maker MOS plugin support files
+           Installs the ai-template-maker-analyze script used by the AI Template
+           Maker MOS plugin to generate Docker/Compose templates from a repository
+           using Claude.
+          EOF
+          deb_name="ai-template-maker_${{ steps.meta.outputs.version }}_all.deb"
+          dpkg-deb --root-owner-group --build deb-build "$deb_name"
+          md5sum "$deb_name" | awk '{print $1}' > "$deb_name.md5"
+          echo "DEB_NAME=$deb_name" >> "$GITHUB_ENV"
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: ai-template-maker-${{ github.ref_name }}.zip
+          files: |
+            ${{ env.DEB_NAME }}
+            ${{ env.DEB_NAME }}.md5

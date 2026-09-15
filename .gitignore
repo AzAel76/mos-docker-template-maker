@@ -1,4 +1,5 @@
 node_modules/
 page/dist/
-package/
-*.zip
+deb-build/
+*.deb
+*.deb.md5
