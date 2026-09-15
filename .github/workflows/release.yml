@@ -1,0 +1,46 @@
+name: Build and release plugin
+
+# NOTE: package layout below is a best guess from the MOS plugin dev guide
+# (build in CI, upload as a GitHub Release). Confirm the exact expected
+# archive layout against a real installed MOS plugin (e.g. the official
+# Backup plugin's release asset) before relying on this for a real install.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build plugin page
+        working-directory: page
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package plugin
+        run: |
+          mkdir -p package/page
+          cp -r page/dist/. package/page/
+          cp page/plugin.config.js package/page/
+          cp functions package/
+          cp settings.json package/
+          cp README.md package/ 2>/dev/null || true
+          cd package
+          zip -r ../ai-template-maker-${{ github.ref_name }}.zip .
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ai-template-maker-${{ github.ref_name }}.zip

@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+# Invoked via MOS's synchronous plugin query endpoint:
+#   POST /mos/plugins/query {command:"ai-template-maker-analyze", args:[repoUrl], parse_json:true}
+# Must live at /usr/bin/plugins/ai-template-maker-analyze on the MOS host
+# (installed there by the plugin's `functions` install() hook).
+#
+# Prints one JSON object to stdout:
+#   {"mode":"docker","docker":{...MOS docker.json shape...}}
+#   {"mode":"compose","name":"...","yaml":"...","env":"...","template":{...}}
+# On failure, prints {"error":"..."} to stdout (query's parse_json expects
+# valid JSON either way) and exits non-zero.
+set -uo pipefail
+
+PLUGIN_NAME="ai-template-maker"
+SETTINGS_FILE="/boot/optional/plugins/${PLUGIN_NAME}/settings.json"
+
+fail() {
+  jq -n --arg msg "$1" '{error:$msg}'
+  exit 1
+}
+
+command -v jq >/dev/null 2>&1 || { echo '{"error":"jq is required on the MOS host"}'; exit 1; }
+command -v curl >/dev/null 2>&1 || { echo '{"error":"curl is required on the MOS host"}'; exit 1; }
+
+repo_url="${1:-}"
+[[ -n "$repo_url" ]] || fail "A repository URL is required"
+
+# ---------------------------------------------------------------------------
+# Settings: env vars win (used for standalone/manual testing), then
+# settings.json written by the plugin's Settings tab.
+# ---------------------------------------------------------------------------
+api_key="${ANTHROPIC_API_KEY:-}"
+model="${MOS_TEMPLATE_MAKER_MODEL:-}"
+github_token="${GITHUB_TOKEN:-}"
+
+if [[ -f "$SETTINGS_FILE" ]]; then
+  [[ -z "$api_key" ]] && api_key=$(jq -r '.api_key // empty' "$SETTINGS_FILE" 2>/dev/null)
+  [[ -z "$model" ]] && model=$(jq -r '.model // empty' "$SETTINGS_FILE" 2>/dev/null)
+  [[ -z "$github_token" ]] && github_token=$(jq -r '.github_token // empty' "$SETTINGS_FILE" 2>/dev/null)
+fi
+model="${model:-claude-sonnet-5}"
+
+[[ -n "$api_key" ]] || fail "No Anthropic API key configured. Set it in the plugin's Settings tab."
+
+# ---------------------------------------------------------------------------
+# Parse owner/repo out of the given URL.
+# ---------------------------------------------------------------------------
+owner_repo=$(echo "$repo_url" | sed -E 's#^https?://(www\.)?github\.com/([^/]+/[^/]+?)(\.git)?/?$#\2#')
+[[ "$owner_repo" != "$repo_url" && "$owner_repo" == */* ]] || fail "Could not parse a GitHub owner/repo from: $repo_url"
+
+gh_auth=()
+[[ -n "$github_token" ]] && gh_auth=(-H "Authorization: Bearer $github_token")
+
+gh_api() { curl -sf "${gh_auth[@]}" -H "Accept: application/vnd.github+json" "$@"; }
+gh_raw_file() { curl -sf "${gh_auth[@]}" "https://raw.githubusercontent.com/${owner_repo}/${default_branch}/$1" 2>/dev/null; }
+trunc() { head -c 8000; }
+
+repo_meta=$(gh_api "https://api.github.com/repos/${owner_repo}") || fail "GitHub repo not found or inaccessible: ${owner_repo}"
+default_branch=$(echo "$repo_meta" | jq -r '.default_branch // "main"')
+
+root_listing=$(gh_api "https://api.github.com/repos/${owner_repo}/contents/" | jq -r '.[]?.path' 2>/dev/null)
+find_file() { echo "$root_listing" | grep -iE "$1" | head -1; }
+
+compose_path=$(find_file '^(docker-)?compose\.ya?ml$')
+dockerfile_path=$(find_file '^dockerfile$')
+
+readme_t=$(gh_api -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/${owner_repo}/readme" 2>/dev/null | trunc)
+compose_t=""
+[[ -n "$compose_path" ]] && compose_t=$(gh_raw_file "$compose_path" | trunc)
+dockerfile_t=""
+[[ -n "$dockerfile_path" ]] && dockerfile_t=$(gh_raw_file "$dockerfile_path" | trunc)
+
+[[ -n "$readme_t$compose_t$dockerfile_t" ]] || fail "No README, Dockerfile, or compose file found in ${owner_repo}"
+
+# ---------------------------------------------------------------------------
+# Few-shot schema examples, baked into the script (only this file is copied
+# onto the MOS host, so it can't read the repo's samples/ dir at runtime).
+# ---------------------------------------------------------------------------
+docker_schema_example=$(cat <<'EOF'
+{
+  "name": "Jellyfin",
+  "repo": "lscr.io/linuxserver/jellyfin:latest",
+  "network": "bridge",
+  "extra_parameters": "--restart=unless-stopped",
+  "web_ui_url": "http://[IP]:[PORT:8096]/",
+  "icon": "",
+  "description": "Media server for streaming your library.",
+  "paths": [
+    { "name": "Data Path", "mode": "", "host": "/mnt/cache/AppData/jellyfin/config", "container": "/config", "description": "" }
+  ],
+  "ports": [
+    { "name": "http - WebGUI", "protocol": "tcp", "host": "8096", "container": "8096", "description": "" }
+  ],
+  "variables": [
+    { "name": "PUID", "key": "PUID", "value": "500", "mask": false, "description": "" }
+  ],
+  "devices": [],
+  "labels": [],
+  "no_autoupdate": false,
+  "privileged": false
+}
+EOF
+)
+
+compose_schema_example=$(cat <<'EOF'
+{
+  "mode": "compose",
+  "name": "immich",
+  "yaml": "services:\n  immich-server:\n    image: ghcr.io/immich-app/immich-server:release\n    ports:\n      - \"2283:2283\"\n    volumes:\n      - /mnt/cache/appdata/immich/upload:/usr/src/app/upload\n  immich-redis:\n    image: redis:6.2-alpine\n",
+  "env": "TZ=UTC\nDB_PASSWORD=changeme\n",
+  "template": {
+    "name": "Immich",
+    "description": "Self-hosted photo and video backup solution.",
+    "icon": "",
+    "webui": "http://{IP}:2283",
+    "category": ["Media"]
+  }
+}
+EOF
+)
+
+# ---------------------------------------------------------------------------
+# Ask Claude to produce one strict-JSON object matching one of the two shapes
+# above. Whether this is a single-container ("docker") or multi-service
+# ("compose") app is Claude's call, based on the actual services it sees.
+# ---------------------------------------------------------------------------
+system_prompt=$(cat <<EOF
+You turn a software project's install docs into a MOS (mos-official.net) app
+template. MOS templates come in two shapes:
+
+1) "docker" mode - for a single-container app (a plain \`docker run\`, or a
+   compose file with exactly one service). Output shape (see example):
+${docker_schema_example}
+
+2) "compose" mode - for a multi-service app (a compose file with 2+
+   services that must run together). Output shape (see example):
+${compose_schema_example}
+
+Rules:
+- Prefer "docker" mode whenever the app only truly needs one container.
+- Use real values from the provided README/Dockerfile/compose content:
+  the actual image tag, actual ports, actual volumes/paths, actual
+  required environment variables. Do not invent ports or paths that
+  aren't evidenced in the input.
+- Use MOS's standard host path convention: /mnt/cache/appdata/<app>/<name>
+  for any path you must invent (e.g. a config volume with no host path
+  specified upstream).
+- web_ui_url / webui must use the literal placeholder tokens shown in the
+  examples ([IP], [PORT:xxxx], {IP}) - do not guess a real IP.
+- Leave "icon" as an empty string - it is resolved separately.
+- Respond with ONLY the single JSON object. No markdown fences, no prose.
+EOF
+)
+
+user_content=$(cat <<EOF
+Repository: ${owner_repo}
+
+README (may be truncated):
+${readme_t}
+
+Dockerfile (may be truncated, may be absent):
+${dockerfile_t}
+
+Compose file (may be truncated, may be absent):
+${compose_t}
+EOF
+)
+
+request_body=$(jq -n \
+  --arg model "$model" \
+  --arg system "$system_prompt" \
+  --arg user "$user_content" \
+  '{model: $model, max_tokens: 4096, system: $system, messages: [{role:"user", content:$user}]}')
+
+response=$(curl -sf \
+  -H "x-api-key: ${api_key}" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "content-type: application/json" \
+  -d "$request_body" \
+  "https://api.anthropic.com/v1/messages") || fail "Claude API request failed"
+
+raw_text=$(echo "$response" | jq -r '.content[0].text // empty')
+[[ -n "$raw_text" ]] || fail "Claude returned no content: $(echo "$response" | jq -c '.error // .' 2>/dev/null)"
+
+# Strip stray markdown fences if the model added them despite instructions.
+json_text=$(echo "$raw_text" | sed -E '/^```/d')
+
+echo "$json_text" | jq empty 2>/dev/null || fail "Claude did not return valid JSON"
+
+# ---------------------------------------------------------------------------
+# Icon resolution: selfh.st/icons, then dashboard-icons, by slugified name.
+# ---------------------------------------------------------------------------
+slugify() { echo "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g'; }
+
+resolve_icon() {
+  local slug
+  slug=$(slugify "$1")
+  [[ -n "$slug" ]] || return 0
+  local candidates=(
+    "https://cdn.jsdelivr.net/gh/selfhst/icons@main/png/${slug}.png"
+    "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/png/${slug}.png"
+  )
+  local url
+  for url in "${candidates[@]}"; do
+    if curl -sfIL --max-time 5 "$url" >/dev/null 2>&1; then
+      echo "$url"
+      return 0
+    fi
+  done
+}
+
+mode=$(echo "$json_text" | jq -r '.mode // "docker"')
+if [[ "$mode" == "compose" ]]; then
+  app_name=$(echo "$json_text" | jq -r '.template.name // .name')
+  icon_url=$(resolve_icon "$app_name")
+  echo "$json_text" | jq --arg icon "${icon_url:-}" '.template.icon = $icon'
+else
+  # Wrap bare docker-shaped output for consistency, in case the model
+  # omitted the {"mode":"docker","docker":{...}} envelope.
+  has_docker_key=$(echo "$json_text" | jq 'has("docker")')
+  if [[ "$has_docker_key" != "true" ]]; then
+    json_text=$(jq -n --argjson d "$json_text" '{mode:"docker", docker:$d}')
+  fi
+  app_name=$(echo "$json_text" | jq -r '.docker.name')
+  icon_url=$(resolve_icon "$app_name")
+  echo "$json_text" | jq --arg icon "${icon_url:-}" '.docker.icon = $icon'
+fi
