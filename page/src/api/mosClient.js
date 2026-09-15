@@ -1,19 +1,20 @@
 // Thin wrapper around the MOS REST API.
 //
-// NOTE (verify against a real MOS instance, see plan step 6): the exact way
-// a federated plugin page authenticates against the host's API is not
-// documented. This assumes the plugin page is served same-origin with the
-// MOS frontend and rides along on its session/cookie, which is the common
-// pattern for module-federation "micro frontends" embedded in a host app.
-// If MOS instead expects an explicit Bearer token, the host is expected to
-// expose it (e.g. `window.__MOS_API_TOKEN__` or a provide/inject value) —
-// wire that in here once confirmed.
-const API_BASE = import.meta.env.VITE_MOS_API_BASE || "";
+// Confirmed against mos-api's src/index.js router mounts (not guessed):
+//   app.use('/api/v1/docker/mos/compose', authenticateToken, dockerComposeRoutes);
+//   app.use('/api/v1/docker', authenticateToken, dockerRoutes);
+//   app.use('/api/v1/mos/plugins', authenticateToken, pluginsRoutes);
+// All of them require Bearer auth (authenticateToken middleware). Since a
+// plugin page is loaded same-origin into the MOS host app, it shares
+// localStorage with it - mos-frontend itself reads the token from
+// localStorage.getItem('authToken') (see usePlugins.ts / plugins.vue), so
+// this does the same rather than expecting something plugin-specific.
+const API_BASE = import.meta.env.VITE_MOS_API_BASE || "/api/v1";
 const DEV_TOKEN = import.meta.env.VITE_MOS_API_TOKEN || "";
 
 async function request(path, { method = "GET", body } = {}) {
   const headers = { "Content-Type": "application/json" };
-  const token = window.__MOS_API_TOKEN__ || DEV_TOKEN;
+  const token = localStorage.getItem("authToken") || DEV_TOKEN;
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(`${API_BASE}${path}`, {
@@ -24,7 +25,18 @@ async function request(path, { method = "GET", body } = {}) {
   });
 
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // Not JSON - almost certainly the SPA's index.html catch-all, which
+      // means `path` doesn't match a real backend route (wrong prefix) or
+      // auth redirected. Surface something actionable instead of a raw
+      // "Unexpected token '<'" parse error.
+      throw new Error(`${method} ${path} did not return JSON (HTTP ${res.status}) - check the API path/auth`);
+    }
+  }
 
   if (!res.ok) {
     const error = new Error(data?.error || `${method} ${path} failed (${res.status})`);
@@ -56,10 +68,10 @@ export const mosClient = {
     });
   },
   createContainer(template) {
-    return request("/mos/create", { method: "POST", body: template });
+    return request("/docker/mos/create", { method: "POST", body: template });
   },
   createStack({ name, yaml, env, icon, webui, autostart = false, no_autoupdate = false }) {
-    return request("/stacks", {
+    return request("/docker/mos/compose/stacks", {
       method: "POST",
       body: { name, yaml, env, icon, webui, autostart, no_autoupdate }
     });

@@ -104,11 +104,11 @@ var _sfc_main$4 = {
 };
 //#endregion
 //#region src/api/mosClient.js
-var API_BASE = "";
+var API_BASE = "/api/v1";
 var DEV_TOKEN = "";
 async function request(path, { method = "GET", body } = {}) {
 	const headers = { "Content-Type": "application/json" };
-	const token = window.__MOS_API_TOKEN__ || DEV_TOKEN;
+	const token = localStorage.getItem("authToken") || DEV_TOKEN;
 	if (token) headers.Authorization = `Bearer ${token}`;
 	const res = await fetch(`${API_BASE}${path}`, {
 		method,
@@ -117,7 +117,12 @@ async function request(path, { method = "GET", body } = {}) {
 		body: body !== void 0 ? JSON.stringify(body) : void 0
 	});
 	const text = await res.text();
-	const data = text ? JSON.parse(text) : null;
+	let data = null;
+	if (text) try {
+		data = JSON.parse(text);
+	} catch {
+		throw new Error(`${method} ${path} did not return JSON (HTTP ${res.status}) - check the API path/auth`);
+	}
 	if (!res.ok) {
 		const error = new Error(data?.error || `${method} ${path} failed (${res.status})`);
 		error.status = res.status;
@@ -149,13 +154,13 @@ var mosClient = {
 		});
 	},
 	createContainer(template) {
-		return request("/mos/create", {
+		return request("/docker/mos/create", {
 			method: "POST",
 			body: template
 		});
 	},
 	createStack({ name, yaml, env, icon, webui, autostart = false, no_autoupdate = false }) {
-		return request("/stacks", {
+		return request("/docker/mos/compose/stacks", {
 			method: "POST",
 			body: {
 				name,
