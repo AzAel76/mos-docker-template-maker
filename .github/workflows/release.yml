@@ -1,20 +1,29 @@
 name: Build and release plugin .deb
 
-# MOS installs a plugin from a GitHub Release, not from the git tarball
-# directly for everything: it downloads (1) a single .deb asset matching
-# the host's architecture and runs `dpkg -i` on it, and (2) the release
-# tag's auto-generated source tarball, from which it copies settings.json,
-# staticfiles/, functions, and page/plugin.config.js into place.
-#
-# That means staticfiles/ (the built page/ output) MUST already be
-# committed at the tag - this workflow does not build the frontend. Before
-# tagging a release:
+# MOS installs a plugin from a GitHub Release in two parts:
+#  1. A single .deb asset matching the host's architecture, `dpkg -i`'d
+#     directly. Confirmed from mos-api's plugins.service.js and the real
+#     nginx config (mos-rootfs /etc/nginx/mos.conf, `location ^~ /_plugins/
+#     { alias /var/www/mos-plugins/; }`): the plugin ONLY shows up in the
+#     UI if its manifest.json exists under /var/www/mos-plugins/<name>/,
+#     and nothing in mos-api ever writes there - only the .deb can. So the
+#     .deb must carry both the analyze script AND the built frontend +
+#     manifest.json.
+#  2. The release tag's auto-generated source tarball, from which MOS
+#     separately copies settings.json/staticfiles//page/plugin.config.js
+#     into /boot/optional/plugins/<name>/ (bookkeeping only - not what's
+#     actually served). That means staticfiles/ (the built page/ output)
+#     must already be committed at the tag; this workflow does not build
+#     the frontend. Before tagging a release:
 #   cd page && npm ci && npm run build
 #   rm -rf ../staticfiles && cp -r dist/. ../staticfiles/
-#   git add staticfiles page/plugin.config.js && git commit -m "..."
+#   cd ..
+#   # bump version in page/plugin.config.js to match the new tag
+#   git add staticfiles page/plugin.config.js && git commit -m "Release vX.Y.Z"
 #   git tag vX.Y.Z && git push && git push --tags
-# This workflow then only builds the .deb (bin/ -> /usr/bin/plugins/) and
-# attaches it (+ md5) to the release GitHub already created for the tag.
+# This workflow then builds the .deb (bin/ -> /usr/bin/plugins/,
+# staticfiles/ + a generated manifest.json -> /var/www/mos-plugins/<name>/)
+# and attaches it (+ md5) to the release GitHub already created for the tag.
 
 on:
   push:
@@ -24,40 +33,80 @@ on:
 permissions:
   contents: write
 
+env:
+  PLUGIN_NAME: ai-template-maker
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Read plugin version
+      - name: Read plugin metadata
         id: meta
         run: |
-          version=$(sed -nE 's/.*version:\s*"([^"]+)".*/\1/p' page/plugin.config.js | head -1)
+          field() { sed -nE "s/.*$1:\s*\"([^\"]*)\".*/\1/p" page/plugin.config.js | head -1; }
+          version=$(field version)
+          displayName=$(field displayName)
+          description=$(field description)
+          icon=$(field icon)
           if [ -z "$version" ]; then echo "Could not read version from page/plugin.config.js" >&2; exit 1; fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$version"
+            echo "displayName=$displayName"
+            echo "description=$description"
+            echo "icon=$icon"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build .deb
+        env:
+          PLUGIN_VERSION: ${{ steps.meta.outputs.version }}
+          PLUGIN_DISPLAY_NAME: ${{ steps.meta.outputs.displayName }}
+          PLUGIN_DESCRIPTION: ${{ steps.meta.outputs.description }}
+          PLUGIN_ICON: ${{ steps.meta.outputs.icon }}
         run: |
           set -e
           rm -rf deb-build
-          mkdir -p deb-build/DEBIAN deb-build/usr/bin/plugins
-          cp bin/ai-template-maker-analyze deb-build/usr/bin/plugins/ai-template-maker-analyze
-          chmod 755 deb-build/usr/bin/plugins/ai-template-maker-analyze
+          web_dir="deb-build/var/www/mos-plugins/${PLUGIN_NAME}"
+          mkdir -p deb-build/DEBIAN deb-build/usr/bin/plugins "$web_dir"
+
+          cp bin/ai-template-maker-analyze "deb-build/usr/bin/plugins/${PLUGIN_NAME}-analyze"
+          chmod 755 "deb-build/usr/bin/plugins/${PLUGIN_NAME}-analyze"
+
+          cp -r staticfiles/. "$web_dir/"
+          find "$web_dir" -type f -exec chmod 644 {} \;
+          find "$web_dir" -type d -exec chmod 755 {} \;
+
+          WEB_DIR="$web_dir" python3 -c "
+          import json, os
+          manifest = {
+              'name': os.environ['PLUGIN_NAME'],
+              'displayName': os.environ['PLUGIN_DISPLAY_NAME'],
+              'description': os.environ['PLUGIN_DESCRIPTION'],
+              'icon': os.environ['PLUGIN_ICON'],
+              'version': os.environ['PLUGIN_VERSION'],
+              'widget': False,
+          }
+          with open(os.path.join(os.environ['WEB_DIR'], 'manifest.json'), 'w') as f:
+              json.dump(manifest, f, indent=2)
+          "
+
           cat > deb-build/DEBIAN/control <<EOF
-          Package: ai-template-maker
-          Version: ${{ steps.meta.outputs.version }}
+          Package: ${PLUGIN_NAME}
+          Version: ${PLUGIN_VERSION}
           Section: utils
           Priority: optional
           Architecture: all
           Depends: bash, curl, jq
           Maintainer: AzAel76 <AzAel76@users.noreply.github.com>
-          Description: AI Template Maker MOS plugin support files
-           Installs the ai-template-maker-analyze script used by the AI Template
-           Maker MOS plugin to generate Docker/Compose templates from a repository
-           using Claude.
+          Description: AI Template Maker MOS plugin
+           Installs the ${PLUGIN_NAME}-analyze script (/usr/bin/plugins) and the
+           built plugin frontend + manifest (/var/www/mos-plugins/${PLUGIN_NAME})
+           for the AI Template Maker MOS plugin, which uses Claude to generate
+           Docker/Compose templates from a repository.
           EOF
-          deb_name="ai-template-maker_${{ steps.meta.outputs.version }}_all.deb"
+
+          deb_name="${PLUGIN_NAME}_${PLUGIN_VERSION}_all.deb"
           dpkg-deb --root-owner-group --build deb-build "$deb_name"
           md5sum "$deb_name" | awk '{print $1}' > "$deb_name.md5"
           echo "DEB_NAME=$deb_name" >> "$GITHUB_ENV"
