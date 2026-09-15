@@ -1,0 +1,75 @@
+{
+  "mode": "docker",
+  "docker": {
+    "name": "github-release-monitor",
+    "repo": "ghcr.io/iamspido/github-release-monitor:latest",
+    "network": "bridge",
+    "custom_ip": "",
+    "default_shell": "sh",
+    "privileged": false,
+    "extra_parameters": "--restart=unless-stopped",
+    "post_parameters": "",
+    "web_ui_url": "http://[IP]:[PORT:3000]/",
+    "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons@main/png/github-release-monitor.png",
+    "description": "Self-hosted dashboard that watches GitHub, GitLab, Codeberg, and self-hosted Forgejo repositories for new releases and notifies you by email or Apprise.",
+    "paths": [
+      {
+        "name": "Data",
+        "mode": "",
+        "host": "/mnt/cache/appdata/github-release-monitor/data",
+        "container": "/app/data",
+        "description": "Stores the Better Auth SQLite database. Must be writable by UID/GID 1001 (the container's non-root user) — e.g. run `chown -R 1001:1001 ./data` on the host directory before first start."
+      }
+    ],
+    "ports": [
+      {
+        "name": "Web UI",
+        "protocol": "tcp",
+        "host": "8080",
+        "container": "3000",
+        "description": ""
+      }
+    ],
+    "variables": [
+      { "name": "", "key": "AUTHENTICATION_METHOD", "value": "Basic", "mask": false, "description": "Auth mode: Basic (internal login required), AllowUnauthenticated (public read-only home; login required for changes/settings), or External (behind Authelia, Authentik, TinyAuth, NGINX Basic auth, etc.)." },
+      { "name": "", "key": "HTTPS", "value": "false", "mask": false, "description": "Set to false for a direct HTTP setup with no reverse proxy in front (this template's default). Affects session cookies and security headers." },
+      { "name": "", "key": "BETTER_AUTH_SECRET", "value": "", "mask": true, "description": "Required. At least 32 characters. Generate with: openssl rand -base64 32" },
+      { "name": "", "key": "BETTER_AUTH_URL", "value": "", "mask": false, "description": "Required. Public base URL of the app — must match the URL you'll open in your browser, e.g. http://<your-ip>:8080" },
+      { "name": "", "key": "AUTH_SETUP_TOKEN", "value": "", "mask": true, "description": "Required. One-time token for creating the first admin account. At least 32 characters. Generate with: openssl rand -base64 32" },
+      { "name": "", "key": "AUTH_ENABLE_SIGNUP", "value": "false", "mask": false, "description": "Keep self-service signup disabled by default; the first admin account is created via the AUTH_SETUP_TOKEN flow." },
+      { "name": "", "key": "AUTH_ENABLE_PASSKEY", "value": "true", "mask": false, "description": "Enable WebAuthn passkeys for passwordless login." },
+      { "name": "", "key": "AUTH_LOGIN_LOCKOUT_SECONDS", "value": "900", "mask": false, "description": "Lockout duration (seconds) once the failed-login threshold is reached." },
+      { "name": "", "key": "AUTH_LOGIN_WINDOW_SECONDS", "value": "900", "mask": false, "description": "Time window (seconds) used to count failed login attempts." },
+      { "name": "", "key": "AUTH_MAX_LOGIN_ATTEMPTS", "value": "5", "mask": false, "description": "Maximum failed login attempts before lockout starts." },
+      { "name": "", "key": "AUTH_TRUST_PROXY_HEADERS", "value": "false", "mask": false, "description": "Enable only when a trusted reverse proxy overwrites client IP headers. Leave false for this direct/no-proxy setup." },
+      { "name": "", "key": "AUTH_TRUSTED_PROXY_HOPS", "value": "1", "mask": false, "description": "Number of trusted proxy entries at the right side of X-Forwarded-For (only relevant if AUTH_TRUST_PROXY_HEADERS=true)." },
+      { "name": "", "key": "AUTH_PASSWORD_RESET_TOKEN_TTL_SECONDS", "value": "900", "mask": false, "description": "Lifetime of password-reset links in seconds (60-86400)." },
+      { "name": "", "key": "AUTH_TRUST_SOCIAL_LINKING", "value": "true", "mask": false, "description": "Trust configured social login providers for automatic account linking by email." },
+      { "name": "", "key": "AUTH_GITHUB_CLIENT_ID", "value": "", "mask": false, "description": "Optional GitHub OAuth client ID, for social login." },
+      { "name": "", "key": "AUTH_GITHUB_CLIENT_SECRET", "value": "", "mask": true, "description": "Optional GitHub OAuth client secret." },
+      { "name": "", "key": "AUTH_GOOGLE_CLIENT_ID", "value": "", "mask": false, "description": "Optional Google OAuth client ID, for social login." },
+      { "name": "", "key": "AUTH_GOOGLE_CLIENT_SECRET", "value": "", "mask": true, "description": "Optional Google OAuth client secret." },
+      { "name": "", "key": "GITHUB_ACCESS_TOKEN", "value": "", "mask": true, "description": "Recommended. A scopeless GitHub Personal Access Token raises the GitHub API rate limit from 60 to 5000 requests/hour." },
+      { "name": "", "key": "GITLAB_ADDITIONAL_HOSTS", "value": "", "mask": false, "description": "Optional. Comma-separated additional GitLab instance hostnames besides gitlab.com." },
+      { "name": "", "key": "GITLAB_ACCESS_TOKENS", "value": "", "mask": true, "description": "Optional. Comma-separated host=token pairs for private GitLab repos (scopes: read_api, read_repository)." },
+      { "name": "", "key": "GITLAB_DEPLOY_TOKENS", "value": "", "mask": true, "description": "Optional. Comma-separated host=username:token pairs (deploy token scope: read_repository)." },
+      { "name": "", "key": "CODEBERG_ACCESS_TOKEN", "value": "", "mask": true, "description": "Optional. Token for monitoring private Codeberg repos (needs read:repository)." },
+      { "name": "", "key": "FORGEJO_ADDITIONAL_BASE_URLS", "value": "", "mask": false, "description": "Optional. Comma-separated allowed self-hosted Forgejo base URLs." },
+      { "name": "", "key": "FORGEJO_ACCESS_TOKENS", "value": "", "mask": true, "description": "Optional. Comma-separated base-url=token pairs for private Forgejo repos (needs read:repository)." },
+      { "name": "", "key": "MAIL_HOST", "value": "", "mask": false, "description": "Optional — required only for email notifications. Your SMTP server host." },
+      { "name": "", "key": "MAIL_PORT", "value": "587", "mask": false, "description": "SMTP server port." },
+      { "name": "", "key": "MAIL_USERNAME", "value": "", "mask": false, "description": "SMTP username." },
+      { "name": "", "key": "MAIL_PASSWORD", "value": "", "mask": true, "description": "SMTP password or app token." },
+      { "name": "", "key": "MAIL_TLS_REJECT_UNAUTHORIZED", "value": "true", "mask": false, "description": "Verify the SMTP server's TLS certificate. Only disable for a controlled internal relay." },
+      { "name": "", "key": "MAIL_FROM_ADDRESS", "value": "", "mask": false, "description": "The \"from\" address for notification emails." },
+      { "name": "", "key": "MAIL_FROM_NAME", "value": "GitHub Release Monitor", "mask": false, "description": "The \"from\" display name for notification emails." },
+      { "name": "", "key": "MAIL_TO_ADDRESS", "value": "", "mask": false, "description": "The address notification emails are sent to." },
+      { "name": "", "key": "APPRISE_URL", "value": "", "mask": false, "description": "Optional. URL of a separate Apprise API service (e.g. http://apprise:8000/notify) for push/chat notifications. Requires running a companion Apprise container — not included in this single-container template." },
+      { "name": "", "key": "TZ", "value": "", "mask": false, "description": "Container timezone, e.g. Etc/UTC." },
+      { "name": "", "key": "LANG", "value": "C.UTF-8", "mask": false, "description": "Locale. C.UTF-8 is a minimal POSIX locale with UTF-8 support." }
+    ],
+    "devices": [],
+    "labels": [],
+    "no_autoupdate": false
+  }
+}

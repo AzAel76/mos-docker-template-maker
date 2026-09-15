@@ -53,24 +53,47 @@ gh_auth=()
 
 gh_api() { curl -sf "${gh_auth[@]}" -H "Accept: application/vnd.github+json" "$@"; }
 gh_raw_file() { curl -sf "${gh_auth[@]}" "https://raw.githubusercontent.com/${owner_repo}/${default_branch}/$1" 2>/dev/null; }
-trunc() { head -c 8000; }
+# READMEs and env-var docs routinely run 30-50KB on well-documented repos
+# (the whole point of this tool); truncating at a few KB silently drops the
+# actual docker-run/.env sections. Budget generously - Claude's context
+# window comfortably fits this.
+trunc() { head -c 60000; }
 
 repo_meta=$(gh_api "https://api.github.com/repos/${owner_repo}") || fail "GitHub repo not found or inaccessible: ${owner_repo}"
 default_branch=$(echo "$repo_meta" | jq -r '.default_branch // "main"')
 
-root_listing=$(gh_api "https://api.github.com/repos/${owner_repo}/contents/" | jq -r '.[]?.path' 2>/dev/null)
-find_file() { echo "$root_listing" | grep -iE "$1" | head -1; }
+# Full recursive tree, not just the root listing - Dockerfiles, compose
+# files, and .env examples are routinely nested (docker/, example/, deploy/).
+repo_tree=$(gh_api "https://api.github.com/repos/${owner_repo}/git/trees/${default_branch}?recursive=1" | jq -r '.tree[]? | select(.type=="blob") | .path' 2>/dev/null)
+find_file() {
+  # $1 = case-insensitive regex; prefers the shallowest path, then shortest.
+  echo "$repo_tree" | grep -iE "$1" | awk '{print gsub(/\//,"/"), length, $0}' | sort -n | head -1 | cut -d' ' -f3-
+}
 
-compose_path=$(find_file '^(docker-)?compose\.ya?ml$')
-dockerfile_path=$(find_file '^dockerfile$')
+repo_slug="${owner_repo##*/}"
+compose_candidates=$(echo "$repo_tree" | grep -iE '(^|/)(docker-)?compose\.ya?ml$')
+# Repos with multiple example stacks (e.g. example/<app>/, example/smtp/,
+# example/traefik/) can have several compose.yaml files - prefer the one
+# whose path actually names this app over an unrelated sidecar example.
+compose_path=$(echo "$compose_candidates" | grep -iF "$repo_slug" | head -1)
+if [[ -z "$compose_path" ]]; then
+  compose_path=$(echo "$compose_candidates" | awk '{print gsub(/\//,"/"), length, $0}' | sort -n | head -1 | cut -d' ' -f3-)
+fi
+dockerfile_path=$(find_file '(^|/)dockerfile$')
+# Prefer a documented example (.env.example/.env.sample) over a real .env,
+# since a real .env in a repo (rare, but possible) may hold live secrets.
+env_path=$(find_file '(^|/)\.env\.(example|sample)$')
+[[ -n "$env_path" ]] || env_path=$(find_file '(^|/)\.env$')
 
 readme_t=$(gh_api -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/${owner_repo}/readme" 2>/dev/null | trunc)
 compose_t=""
 [[ -n "$compose_path" ]] && compose_t=$(gh_raw_file "$compose_path" | trunc)
 dockerfile_t=""
 [[ -n "$dockerfile_path" ]] && dockerfile_t=$(gh_raw_file "$dockerfile_path" | trunc)
+env_t=""
+[[ -n "$env_path" ]] && env_t=$(gh_raw_file "$env_path" | trunc)
 
-[[ -n "$readme_t$compose_t$dockerfile_t" ]] || fail "No README, Dockerfile, or compose file found in ${owner_repo}"
+[[ -n "$readme_t$compose_t$dockerfile_t$env_t" ]] || fail "No README, Dockerfile, compose file, or .env example found in ${owner_repo}"
 
 # ---------------------------------------------------------------------------
 # Few-shot schema examples, baked into the script (only this file is copied
@@ -126,7 +149,12 @@ EOF
 # ---------------------------------------------------------------------------
 system_prompt=$(cat <<EOF
 You turn a software project's install docs into a MOS (mos-official.net) app
-template. MOS templates come in two shapes:
+template. The point of this template is to let someone try out a new
+self-hosted service without typing or copy-pasting config by hand: it
+should arrive with every setting they might plausibly need already present
+(with a sensible default, or blank with a description) so they only ever
+have to delete what they don't want, never hunt down and add something
+that's missing. MOS templates come in two shapes:
 
 1) "docker" mode - for a single-container app (a plain \`docker run\`, or a
    compose file with exactly one service). Output shape (see example):
@@ -137,16 +165,36 @@ ${docker_schema_example}
 ${compose_schema_example}
 
 Rules:
-- Prefer "docker" mode whenever the app only truly needs one container.
-- Use real values from the provided README/Dockerfile/compose content:
-  the actual image tag, actual ports, actual volumes/paths, actual
-  required environment variables. Do not invent ports or paths that
-  aren't evidenced in the input.
+- Prefer "docker" mode whenever the app only truly needs one container to
+  run standalone. If the repo documents more than one deployment method
+  (e.g. a plain \`docker run\` AND a docker-compose example that adds a
+  reverse proxy, external networks, or optional sidecar containers like a
+  mailer), prefer the simplest self-contained one - don't drag in
+  infrastructure that isn't required just because a compose example
+  showed it as an option.
+- If a \`docker run\` command uses \`--env-file\`, the actual environment
+  variables are NOT in that command - they're in the .env/.env.example
+  file provided below (if any). Treat that file as the authoritative
+  variable list: one \`variables\` entry per key found in it. Use the
+  comment immediately above each key as its "description", and its
+  example/default value as "value" (blank placeholders like "" or
+  "changeme" stay blank/placeholder - don't invent a real-looking secret).
+- Include every variable you find - optional/advanced ones included. Do
+  NOT prune down to a "required only" subset; a long list the user can
+  delete from is correct, a short list they'd have to add to is not.
+- Set "mask": true for any variable that is a password, token, secret, or
+  API key.
+- Note in each such variable's description when the README marks it
+  Required vs optional, and any stated constraints (e.g. "min 32 chars").
+- Use real values from the provided README/Dockerfile/compose/env
+  content: the actual image tag, actual ports, actual volumes/paths.
+  Do not invent ports or paths that aren't evidenced in the input.
 - Use MOS's standard host path convention: /mnt/cache/appdata/<app>/<name>
   for any path you must invent (e.g. a config volume with no host path
   specified upstream).
 - web_ui_url / webui must use the literal placeholder tokens shown in the
-  examples ([IP], [PORT:xxxx], {IP}) - do not guess a real IP.
+  examples ([IP], [PORT:xxxx], {IP}) - do not guess a real IP. Use the
+  container port (not the example host port) in [PORT:xxxx].
 - Leave "icon" as an empty string - it is resolved separately.
 - Respond with ONLY the single JSON object. No markdown fences, no prose.
 EOF
@@ -163,6 +211,10 @@ ${dockerfile_t}
 
 Compose file (may be truncated, may be absent):
 ${compose_t}
+
+.env / .env.example file (may be truncated, may be absent - authoritative
+source of environment variables when a docker run command uses --env-file):
+${env_t}
 EOF
 )
 
