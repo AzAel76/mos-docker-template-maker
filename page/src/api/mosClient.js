@@ -56,16 +56,38 @@ export const mosClient = {
   saveSettings(settings) {
     return request(`/mos/plugins/settings/${PLUGIN_NAME}`, { method: "POST", body: settings });
   },
-  analyzeRepo(repoUrl, { timeout = 60 } = {}) {
-    return request("/mos/plugins/query", {
+  async analyzeRepo(repoUrl, { timeout = 60 } = {}) {
+    // POST /mos/plugins/query wraps the script's stdout in
+    // {success, output, exit_code, duration_ms, timed_out} - `output` is
+    // the parsed JSON (parse_json: true) our script printed. The script
+    // itself always exits 0 and signals its own failures via an "error"
+    // key in that JSON (see bin/ai-template-maker-analyze) because MOS
+    // discards stdout on a non-zero exit - so `success: false` here means
+    // something MOS-level went wrong (command missing, genuinely crashed),
+    // not a normal "analysis failed" case.
+    const res = await request("/mos/plugins/query", {
       method: "POST",
       body: {
         command: "ai-template-maker-analyze",
         args: [repoUrl],
-        timeout,
+        timeout: Math.min(timeout, 60),
         parse_json: true
       }
     });
+
+    if (res.timed_out) {
+      throw new Error(`Analysis timed out after ${res.duration_ms}ms (60s max)`);
+    }
+    if (!res.success) {
+      throw new Error(typeof res.output === "string" ? res.output : `Analysis failed (exit ${res.exit_code})`);
+    }
+    if (res.output && typeof res.output === "object" && res.output.error) {
+      throw new Error(res.output.error);
+    }
+    if (typeof res.output !== "object") {
+      throw new Error("Analysis script did not return valid JSON");
+    }
+    return res.output;
   },
   createContainer(template) {
     return request("/docker/mos/create", { method: "POST", body: template });

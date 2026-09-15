@@ -7,8 +7,15 @@
 # Prints one JSON object to stdout:
 #   {"mode":"docker","docker":{...MOS docker.json shape...}}
 #   {"mode":"compose","name":"...","yaml":"...","env":"...","template":{...}}
-# On failure, prints {"error":"..."} to stdout (query's parse_json expects
-# valid JSON either way) and exits non-zero.
+# On failure, prints {"error":"..."} to stdout.
+#
+# IMPORTANT: always exit 0. MOS's query executor (plugins.service.js
+# executeQuery) only returns stdout as `output` when the command exits 0 -
+# on a non-zero exit it discards stdout and substitutes stderr/a generic
+# "Command failed" message instead, silently swallowing our real error
+# text. So every failure path here still prints {"error": "..."} to
+# stdout and exits 0; the frontend distinguishes success from failure by
+# checking for an "error" key in the parsed output, not by HTTP/exit status.
 set -uo pipefail
 
 PLUGIN_NAME="ai-template-maker"
@@ -16,11 +23,11 @@ SETTINGS_FILE="/boot/optional/plugins/${PLUGIN_NAME}/settings.json"
 
 fail() {
   jq -n --arg msg "$1" '{error:$msg}'
-  exit 1
+  exit 0
 }
 
-command -v jq >/dev/null 2>&1 || { echo '{"error":"jq is required on the MOS host"}'; exit 1; }
-command -v curl >/dev/null 2>&1 || { echo '{"error":"curl is required on the MOS host"}'; exit 1; }
+command -v jq >/dev/null 2>&1 || { echo '{"error":"jq is required on the MOS host"}'; exit 0; }
+command -v curl >/dev/null 2>&1 || { echo '{"error":"curl is required on the MOS host"}'; exit 0; }
 
 repo_url="${1:-}"
 [[ -n "$repo_url" ]] || fail "A repository URL is required"
