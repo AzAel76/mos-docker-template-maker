@@ -225,11 +225,25 @@ ${env_t}
 EOF
 )
 
+# claude-sonnet-5 runs adaptive extended thinking by default, which prepends
+# a "thinking" content block before the "text" block - max_tokens covers
+# both, and content[0] is the thinking block, not the answer. Request
+# medium effort (this is single-shot extraction, not agentic reasoning -
+# doesn't need "high") and budget enough tokens for both a real thinking
+# pass and a large, comprehensive template (36+ variables is normal - see
+# the comprehensiveness rule above), well within MOS's 60s query timeout.
 request_body=$(jq -n \
   --arg model "$model" \
   --arg system "$system_prompt" \
   --arg user "$user_content" \
-  '{model: $model, max_tokens: 4096, system: $system, messages: [{role:"user", content:$user}]}')
+  '{
+    model: $model,
+    max_tokens: 8192,
+    thinking: {type: "adaptive"},
+    output_config: {effort: "medium"},
+    system: $system,
+    messages: [{role:"user", content:$user}]
+  }')
 
 response=$(curl -sf \
   -H "x-api-key: ${api_key}" \
@@ -238,8 +252,16 @@ response=$(curl -sf \
   -d "$request_body" \
   "https://api.anthropic.com/v1/messages") || fail "Claude API request failed"
 
-raw_text=$(echo "$response" | jq -r '.content[0].text // empty')
-[[ -n "$raw_text" ]] || fail "Claude returned no content: $(echo "$response" | jq -c '.error // .' 2>/dev/null)"
+stop_reason=$(echo "$response" | jq -r '.stop_reason // empty')
+# Content is an array of typed blocks (thinking, text, ...) - find the text
+# block instead of assuming index 0.
+raw_text=$(echo "$response" | jq -r '[.content[]? | select(.type == "text") | .text] | join("")')
+if [[ -z "$raw_text" ]]; then
+  fail "Claude returned no content (stop_reason: ${stop_reason:-unknown}): $(echo "$response" | jq -c '.error // .' 2>/dev/null)"
+fi
+if [[ "$stop_reason" == "max_tokens" ]]; then
+  fail "Claude's response was truncated (hit the token limit) before finishing the template"
+fi
 
 # Strip stray markdown fences if the model added them despite instructions.
 json_text=$(echo "$raw_text" | sed -E '/^```/d')
