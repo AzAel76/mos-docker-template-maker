@@ -360,7 +360,8 @@ var _hoisted_2$2 = {
 	key: 2,
 	class: "text-body-2 text-medium-emphasis text-center py-8"
 };
-var _hoisted_3$1 = { class: "text-caption" };
+var _hoisted_3$1 = { class: "text-caption text-medium-emphasis" };
+var _hoisted_4$1 = ["title"];
 var { ref: ref$3, onMounted: onMounted$1 } = await importShared("vue");
 var _sfc_main$4 = {
 	__name: "HistoryList",
@@ -379,6 +380,10 @@ var _sfc_main$4 = {
 		function providerModelLabel(entry) {
 			const name = PROVIDER_NAMES[entry.provider] || entry.provider;
 			return entry.model ? `${name} · ${entry.model}` : name;
+		}
+		function formatUsage(usage) {
+			if (!usage || typeof usage.total_tokens !== "number") return "";
+			return `${usage.total_tokens.toLocaleString()} tokens`;
 		}
 		function formatDate(iso) {
 			if (!iso) return "";
@@ -449,9 +454,10 @@ var _sfc_main$4 = {
 								class: "px-0"
 							}, {
 								prepend: _withCtx$4(() => [_createVNode$4(_component_v_icon, {
-									icon: entry.mode === "compose" ? "mdi-layers-outline" : "mdi-package-variant",
+									icon: entry.status === "error" ? "mdi-alert-circle-outline" : entry.mode === "compose" ? "mdi-layers-outline" : "mdi-package-variant",
+									color: entry.status === "error" ? "error" : void 0,
 									class: "mr-3"
-								}, null, 8, ["icon"])]),
+								}, null, 8, ["icon", "color"])]),
 								append: _withCtx$4(() => [entry.result ? (_openBlock$4(), _createBlock$3(_component_v_btn, {
 									key: 0,
 									icon: "mdi-eye-outline",
@@ -475,24 +481,36 @@ var _sfc_main$4 = {
 									_: 2
 								}, 1024), _createVNode$4(_component_v_list_item_subtitle, null, {
 									default: _withCtx$4(() => [
-										_createVNode$4(_component_v_chip, {
+										entry.status === "error" ? (_openBlock$4(), _createBlock$3(_component_v_chip, {
+											key: 0,
+											size: "x-small",
+											color: "error",
+											variant: "tonal",
+											class: "mr-1"
+										}, {
+											default: _withCtx$4(() => [..._cache[0] || (_cache[0] = [_createTextVNode$4("Failed", -1)])]),
+											_: 1
+										})) : _createCommentVNode$3("", true),
+										entry.mode ? (_openBlock$4(), _createBlock$3(_component_v_chip, {
+											key: 1,
 											size: "x-small",
 											variant: "tonal",
 											class: "mr-1"
 										}, {
 											default: _withCtx$4(() => [_createTextVNode$4(_toDisplayString$3(entry.mode === "compose" ? "Compose" : "Docker"), 1)]),
 											_: 2
-										}, 1024),
-										_createVNode$4(_component_v_chip, {
+										}, 1024)) : _createCommentVNode$3("", true),
+										entry.scope ? (_openBlock$4(), _createBlock$3(_component_v_chip, {
+											key: 2,
 											size: "x-small",
 											variant: "tonal",
 											class: "mr-1"
 										}, {
 											default: _withCtx$4(() => [_createTextVNode$4(_toDisplayString$3(entry.scope === "all" ? "All settings" : "Required only"), 1)]),
 											_: 2
-										}, 1024),
+										}, 1024)) : _createCommentVNode$3("", true),
 										entry.provider ? (_openBlock$4(), _createBlock$3(_component_v_chip, {
-											key: 0,
+											key: 3,
 											size: "x-small",
 											variant: "tonal",
 											class: "mr-1"
@@ -500,7 +518,16 @@ var _sfc_main$4 = {
 											default: _withCtx$4(() => [_createTextVNode$4(_toDisplayString$3(providerModelLabel(entry)), 1)]),
 											_: 2
 										}, 1024)) : _createCommentVNode$3("", true),
-										_createElementVNode$4("span", _hoisted_3$1, _toDisplayString$3(formatDate(entry.analyzed_at)), 1)
+										_createElementVNode$4("span", _hoisted_3$1, [
+											_createTextVNode$4(_toDisplayString$3(formatDate(entry.analyzed_at)) + " ", 1),
+											entry.duration_seconds != null ? (_openBlock$4(), _createElementBlock$3(_Fragment$3, { key: 0 }, [_createTextVNode$4("· " + _toDisplayString$3(entry.duration_seconds) + "s", 1)], 64)) : _createCommentVNode$3("", true),
+											entry.usage ? (_openBlock$4(), _createElementBlock$3(_Fragment$3, { key: 1 }, [_createTextVNode$4("· " + _toDisplayString$3(formatUsage(entry.usage)), 1)], 64)) : _createCommentVNode$3("", true)
+										]),
+										entry.error ? (_openBlock$4(), _createElementBlock$3("div", {
+											key: 4,
+											class: "text-caption text-error mt-1",
+											title: entry.error
+										}, _toDisplayString$3(entry.error), 9, _hoisted_4$1)) : _createCommentVNode$3("", true)
 									]),
 									_: 2
 								}, 1024)]),
@@ -517,7 +544,7 @@ var _sfc_main$4 = {
 						loading: clearing.value,
 						onClick: clear
 					}, {
-						default: _withCtx$4(() => [..._cache[0] || (_cache[0] = [_createTextVNode$4("Clear history", -1)])]),
+						default: _withCtx$4(() => [..._cache[1] || (_cache[1] = [_createTextVNode$4("Clear history", -1)])]),
 						_: 1
 					}, 8, ["loading"])]),
 					_: 1
