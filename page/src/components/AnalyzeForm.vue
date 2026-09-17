@@ -2,8 +2,9 @@
   <v-card flat>
     <v-card-text>
       <p class="text-body-2 text-medium-emphasis mb-4">
-        Paste a GitHub repository URL. Claude will look at its README, Dockerfile, and any Compose
-        file to build a MOS template, resolve an icon, and let you review it before installing.
+        Paste a GitHub repository URL. Your configured AI provider will look at its README,
+        Dockerfile, and any Compose file to build a MOS template, resolve an icon, and let you
+        review it before installing.
       </p>
 
       <v-alert v-if="error" type="error" variant="tonal" density="compact" class="mb-4">

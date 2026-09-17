@@ -104,8 +104,10 @@ gh_api() { curl -sf "${gh_auth[@]}" -H "Accept: application/vnd.github+json" "$@
 gh_raw_file() { curl -sf "${gh_auth[@]}" "https://raw.githubusercontent.com/${owner_repo}/${default_branch}/$1" 2>/dev/null; }
 # READMEs and env-var docs routinely run 30-50KB on well-documented repos
 # (the whole point of this tool); truncating at a few KB silently drops the
-# actual docker-run/.env sections. Budget generously - Claude's context
-# window comfortably fits this.
+# actual docker-run/.env sections. Budget generously - Claude/Gemini's
+# context windows comfortably fit this (a small local Ollama model's
+# default context may not - that's a tradeoff of that provider, not
+# something to shrink this budget over for everyone else).
 trunc() { head -c 60000; }
 
 repo_meta=$(gh_api "https://api.github.com/repos/${owner_repo}") || fail "GitHub repo not found or inaccessible: ${owner_repo}"
@@ -192,9 +194,10 @@ EOF
 )
 
 # ---------------------------------------------------------------------------
-# Ask Claude to produce one strict-JSON object matching one of the two shapes
-# above. Whether this is a single-container ("docker") or multi-service
-# ("compose") app is Claude's call, based on the actual services it sees.
+# Ask the model to produce one strict-JSON object matching one of the two
+# shapes above. Whether this is a single-container ("docker") or
+# multi-service ("compose") app is the model's call, based on the actual
+# services it sees.
 # ---------------------------------------------------------------------------
 if [[ "$scope" == "required" ]]; then
   scope_purpose="The point of this template is to let someone get this
@@ -428,7 +431,7 @@ esac
 # Strip stray markdown fences if the model added them despite instructions.
 json_text=$(echo "$raw_text" | sed -E '/^```/d')
 
-echo "$json_text" | jq empty 2>/dev/null || fail "Claude did not return valid JSON"
+echo "$json_text" | jq empty 2>/dev/null || fail "The ${provider} model did not return valid JSON"
 
 # ---------------------------------------------------------------------------
 # Icon resolution: selfh.st/icons, then dashboard-icons, by slugified name.
