@@ -209,7 +209,7 @@ const providerItems = [
 const form = reactive({
   provider: "anthropic",
   anthropic: { api_key: "", model: "claude-sonnet-5" },
-  gemini: { api_key: "", model: "gemini-2.5-flash" },
+  gemini: { api_key: "", model: "gemini-3.6-flash" },
   ollama: { host: "http://localhost:11434", model: "qwen2.5-coder:7b" },
   openai: { base_url: "https://api.openai.com/v1", api_key: "", model: "gpt-4o" },
   github_token: ""

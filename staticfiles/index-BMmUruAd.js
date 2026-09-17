@@ -1,5 +1,5 @@
 import { r as importShared } from "./_virtual___federation_fn_import-fHUJv7KH.js";
-import { t as _sfc_main } from "./Plugin-Vei5PUXk.js";
+import { t as _sfc_main } from "./Plugin-Bs0ve6I3.js";
 //#region \0vite/modulepreload-polyfill.js
 (function polyfill() {
 	const relList = document.createElement("link").relList;

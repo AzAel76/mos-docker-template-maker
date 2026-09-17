@@ -560,7 +560,7 @@ var _sfc_main$3 = {
 			},
 			gemini: {
 				api_key: "",
-				model: "gemini-2.5-flash"
+				model: "gemini-3.6-flash"
 			},
 			ollama: {
 				host: "http://localhost:11434",

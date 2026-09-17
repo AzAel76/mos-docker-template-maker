@@ -52,7 +52,7 @@ fi
 
 echo "$response" | jq empty 2>/dev/null || fail "Gemini responded, but not with valid JSON"
 
-# Model names come back as "models/gemini-2.5-flash" - strip the prefix to
+# Model names come back as "models/gemini-3.6-flash" - strip the prefix to
 # match how this plugin references models everywhere else (settings.json,
 # the model field, etc. all use the bare name).
 models_json=$(echo "$response" | jq -c '[.models[]? | (.name // "") | sub("^models/"; "")] | map(select(. != "")) | unique')

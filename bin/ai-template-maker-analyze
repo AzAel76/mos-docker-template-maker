@@ -133,7 +133,7 @@ github_token="$(trim "$github_token")"
 
 case "$provider" in
   anthropic) model="${model:-claude-sonnet-5}" ;;
-  gemini)    model="${model:-gemini-2.5-flash}" ;;
+  gemini)    model="${model:-gemini-3.6-flash}" ;;
   ollama)    model="${model:-qwen2.5-coder:7b}"; ollama_host="${ollama_host:-http://localhost:11434}" ;;
   # "openai" covers the real OpenAI API and any local server speaking the
   # same Chat Completions contract (LM Studio, vLLM's OpenAI server,
