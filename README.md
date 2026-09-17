@@ -57,7 +57,12 @@ Hub-style install dialog before deploying.
   ever wait, so a second analysis starting mid-run can't prune a still-active job's directory
   out from under it.
 - **`bin/ai-template-maker-history`** — a bash script, installed alongside the above, that
-  serves the history file (`list`) or resets it (`clear`) for the History tab.
+  serves the history file (`list`), resets it (`clear`), or removes one entry (`delete <id>`,
+  matched against the entry's `id` field) for the History tab. `delete` is written under a
+  `flock` on the history file, since it's a read-modify-write against a file the analyze script
+  can also be appending to concurrently. Entries written before the `id` field existed (i.e. from
+  before this feature shipped) can't be targeted individually - `clear` is still the only way to
+  remove those.
 
 ### Where plugin data actually lives
 
@@ -91,16 +96,28 @@ identically, since a job/history file written by one has to be found by the othe
   a mismatch there falls back to the configured name verbatim rather than failing outright,
   since "OpenAI-compatible" spans too many different servers to trust every `/models` response
   as authoritative the way Ollama's can be. That request also explicitly sets `options.num_ctx`
-  (`ollama_num_ctx` in the script, default 16384) - left unset, Ollama silently falls back to a
-  model's Modelfile default context window, often just 2048-4096 tokens, which is well under
-  what the system prompt plus a real README/Dockerfile/compose/env can need, causing silent
-  truncation of the actual repo content regardless of which model is configured. `call_openai()`
-  also uses its own larger completion budget (`openai_budget`, default 16384, separate from the
-  shared `$budget` the other three use) and specifically detects a reasoning model that spent its
-  whole budget on a `reasoning_content` field and hit the length limit before ever writing to
-  `content` - reasoning-capable local models (Qwen3, DeepSeek-R1, QwQ, etc.) are common on
-  exactly the kind of self-hosted server this provider also covers, and without this check that
-  failure just looked like a generic, unexplained "returned no content". `call_anthropic()` and
+  (`ollama_num_ctx` in the script, configurable in Settings as "Context window (num_ctx)",
+  defaulting to 16384) - left unset, Ollama silently falls back to a model's Modelfile default
+  context window, often just 2048-4096 tokens, which is well under what the system prompt plus a
+  real README/Dockerfile/compose/env can need, causing silent truncation of the actual repo
+  content regardless of which model is configured. `call_openai()` also uses its own larger,
+  independently configurable completion budget (`openai_budget`, Settings field "Max output
+  tokens", also defaulting to 16384, separate from the shared `$budget` the other three use) and
+  specifically detects a reasoning model that spent its whole budget on a `reasoning_content`
+  field and hit the length limit before ever writing to `content` - reasoning-capable local
+  models (Qwen3, DeepSeek-R1, QwQ, etc.) are common on exactly the kind of self-hosted server
+  this provider also covers, and without this check that failure just looked like a generic,
+  unexplained "returned no content". Both `num_ctx` and the output-token budget are plain
+  positive-integer fields in the Ollama/OpenAI-compatible Settings panels - the 16384 default was
+  hit in practice by a real reasoning model that still burned its entire budget thinking, so
+  rather than just raising the hardcoded number again, it's now something the user can raise as
+  far as their hardware/host allows. Both panels also carry a short warning about *why* raising
+  the budget is a workaround, not a fix - reasoning/"thinking" variants of local models
+  (`*-thinking`, R1-distills, QwQ, etc.) tend to spend most or all of their budget reasoning
+  rather than writing the requested JSON, so the panels recommend non-reasoning,
+  instruction-tuned alternatives that are a better fit for this plugin's single-turn
+  JSON-extraction task - e.g. `qwen2.5-coder:7b`/`:14b`, Mistral-Small, Mistral-Nemo, or Phi-4,
+  preferring `-instruct` tags. `call_anthropic()` and
   `call_gemini()` - the two oldest provider functions, written before this exit-code/HTTP-body
   capturing pattern existed - were still on the original `curl -sf ... || fail "<generic
   message>"` form, so a real API error (bad model name, quota exceeded, bad key, etc.) came

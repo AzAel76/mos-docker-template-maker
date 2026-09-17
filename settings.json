@@ -10,12 +10,14 @@
   },
   "ollama": {
     "host": "http://localhost:11434",
-    "model": "qwen2.5-coder:7b"
+    "model": "qwen2.5-coder:7b",
+    "num_ctx": 16384
   },
   "openai": {
     "base_url": "https://api.openai.com/v1",
     "api_key": "",
-    "model": "gpt-4o"
+    "model": "gpt-4o",
+    "max_tokens": 16384
   },
   "github_token": ""
 }

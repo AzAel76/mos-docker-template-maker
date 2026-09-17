@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Invoked via MOS's synchronous plugin query endpoint:
-#   POST /mos/plugins/query {command:"ai-template-maker-history", args:[op], parse_json:true}
+#   POST /mos/plugins/query {command:"ai-template-maker-history", args:[op, id], parse_json:true}
 # op: "list" (default) - print the stored history array, newest first.
 #     "clear" - reset history to an empty array, then print it.
+#     "delete" - remove the single entry matching args[1] (its "id" field),
+#       then print the updated array. Entries written before the "id" field
+#       existed can't be targeted this way - "clear" is still the only way
+#       to remove those.
 # Must live at /usr/bin/plugins/ai-template-maker-history on the MOS host
 # (installed there alongside ai-template-maker-analyze, which is what
-# actually appends entries - see its append_history()).
+# actually appends entries - see its log_history_success/log_history_failure).
 #
 # Always exits 0 and prints {"error":"..."} on failure, same convention as
 # ai-template-maker-analyze (MOS's query executor discards stdout on a
@@ -50,7 +54,24 @@ case "$op" in
     echo '[]' > "$HISTORY_FILE" 2>/dev/null || fail "Could not clear history file"
     echo '[]'
     ;;
+  delete)
+    entry_id="${2:-}"
+    [[ -n "$entry_id" ]] || fail "An entry id is required"
+    [[ -f "$HISTORY_FILE" ]] || { echo '[]'; exit 0; }
+    (
+      flock -w 5 -x 200 || fail "Could not lock the history file"
+      current=$(cat "$HISTORY_FILE" 2>/dev/null)
+      jq empty <<<"$current" >/dev/null 2>&1 || current='[]'
+      updated=$(jq --arg id "$entry_id" '[.[] | select(.id != $id)]' <<<"$current" 2>/dev/null)
+      if [[ -n "$updated" ]]; then
+        echo "$updated" > "$HISTORY_FILE"
+        echo "$updated"
+      else
+        echo "$current"
+      fi
+    ) 200>"${HISTORY_FILE}.lock"
+    ;;
   *)
-    fail "Unknown operation '${op}' (expected 'list' or 'clear')"
+    fail "Unknown operation '${op}' (expected 'list', 'clear', or 'delete')"
     ;;
 esac

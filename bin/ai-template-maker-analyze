@@ -122,6 +122,7 @@ elapsed_seconds() {
 log_history_success() {
   local entry
   entry=$(jq -n \
+    --arg id "$(date +%s%N)_$$" \
     --arg repo "${owner_repo:-${repo_url:-}}" --arg url "${repo_url:-}" \
     --arg mode "${mode:-}" --arg scope "${scope:-}" \
     --arg provider "${provider:-}" --arg model "${model:-}" \
@@ -129,7 +130,7 @@ log_history_success() {
     --argjson usage "${usage_json:-null}" \
     --argjson duration "$(elapsed_seconds)" \
     --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{repo:$repo, url:$url, mode:$mode, scope:$scope, provider:$provider, model:$model,
+    '{id:$id, repo:$repo, url:$url, mode:$mode, scope:$scope, provider:$provider, model:$model,
       status:"success", result:$result, error:null, usage:$usage,
       duration_seconds:$duration, analyzed_at:$at}')
   append_history_entry "$entry"
@@ -138,6 +139,7 @@ log_history_success() {
 log_history_failure() {
   local msg="$1" entry
   entry=$(jq -n \
+    --arg id "$(date +%s%N)_$$" \
     --arg repo "${owner_repo:-${repo_url:-}}" --arg url "${repo_url:-}" \
     --arg mode "${mode:-}" --arg scope "${scope:-}" \
     --arg provider "${provider:-}" --arg model "${model:-}" \
@@ -145,7 +147,7 @@ log_history_failure() {
     --argjson usage "${usage_json:-null}" \
     --argjson duration "$(elapsed_seconds)" \
     --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{repo:$repo, url:$url,
+    '{id:$id, repo:$repo, url:$url,
       mode: (if $mode=="" then null else $mode end),
       scope: (if $scope=="" then null else $scope end),
       provider: (if $provider=="" then null else $provider end),
@@ -185,6 +187,8 @@ model="${MOS_TEMPLATE_MAKER_MODEL:-}"
 github_token="${GITHUB_TOKEN:-}"
 ollama_host="${OLLAMA_HOST:-}"
 openai_base_url="${OPENAI_BASE_URL:-}"
+ollama_num_ctx_setting="${OLLAMA_NUM_CTX:-}"
+openai_max_tokens_setting="${OPENAI_MAX_TOKENS:-}"
 
 if [[ -f "$SETTINGS_FILE" ]]; then
   [[ -z "$provider" ]] && provider=$(jq -r '.provider // empty' "$SETTINGS_FILE" 2>/dev/null)
@@ -205,11 +209,13 @@ if [[ -f "$SETTINGS_FILE" ]]; then
     ollama)
       [[ -z "$model" ]] && model=$(jq -r '.ollama.model // empty' "$SETTINGS_FILE" 2>/dev/null)
       [[ -z "$ollama_host" ]] && ollama_host=$(jq -r '.ollama.host // empty' "$SETTINGS_FILE" 2>/dev/null)
+      [[ -z "$ollama_num_ctx_setting" ]] && ollama_num_ctx_setting=$(jq -r '.ollama.num_ctx // empty' "$SETTINGS_FILE" 2>/dev/null)
       ;;
     openai)
       [[ -z "$api_key" ]] && api_key=$(jq -r '.openai.api_key // empty' "$SETTINGS_FILE" 2>/dev/null)
       [[ -z "$model" ]] && model=$(jq -r '.openai.model // empty' "$SETTINGS_FILE" 2>/dev/null)
       [[ -z "$openai_base_url" ]] && openai_base_url=$(jq -r '.openai.base_url // empty' "$SETTINGS_FILE" 2>/dev/null)
+      [[ -z "$openai_max_tokens_setting" ]] && openai_max_tokens_setting=$(jq -r '.openai.max_tokens // empty' "$SETTINGS_FILE" 2>/dev/null)
       ;;
   esac
 fi
@@ -219,6 +225,14 @@ ollama_host="$(trim "$ollama_host")"
 openai_base_url="$(trim "$openai_base_url")"
 api_key="$(trim "$api_key")"
 github_token="$(trim "$github_token")"
+ollama_num_ctx_setting="$(trim "$ollama_num_ctx_setting")"
+openai_max_tokens_setting="$(trim "$openai_max_tokens_setting")"
+# Discard anything that isn't a plain positive integer (a stray non-numeric
+# settings value, or one JSON-serialized as a string instead of a number)
+# rather than pass it to jq's --argjson below and crash the whole analysis
+# over a malformed setting - just fall through to the hardcoded default.
+[[ "$ollama_num_ctx_setting" =~ ^[0-9]+$ ]] || ollama_num_ctx_setting=""
+[[ "$openai_max_tokens_setting" =~ ^[0-9]+$ ]] || openai_max_tokens_setting=""
 
 case "$provider" in
   anthropic) model="${model:-claude-sonnet-5}" ;;
@@ -527,9 +541,12 @@ budget=8192
 # adding a Dockerfile/compose/env file on top - well past a default that
 # small, silently truncating away the very content this whole prompt is
 # built around. 16384 comfortably covers a typical repo's worth of input
-# plus a large generated template; if a specific model/repo still needs
-# more, this is the one place to raise it.
-ollama_num_ctx=16384
+# plus a large generated template for most models - but not every one (a
+# verbose reasoning model can still exceed it, see openai_budget below),
+# so this is also a Settings-tab field (ollama.num_ctx) rather than purely
+# a hardcoded constant; ollama_num_ctx_setting (parsed/validated above)
+# overrides this default when set.
+ollama_num_ctx="${ollama_num_ctx_setting:-16384}"
 
 # OpenAI-compatible-only: a separate, larger completion budget than the
 # shared $budget above. Reasoning-capable models (Qwen3, DeepSeek-R1, QwQ,
@@ -538,10 +555,13 @@ ollama_num_ctx=16384
 # chain-of-thought into a separate "reasoning_content" field before ever
 # writing to "content" - on a prompt this size (system prompt plus a full
 # README/Dockerfile/compose/env), that reasoning trace alone can exceed
-# 8192 tokens, leaving "content" empty and finish_reason "length" with no
+# even 16384 tokens for a sufficiently verbose reasoner (confirmed in
+# practice), leaving "content" empty and finish_reason "length" with no
 # indication of why (see the reasoning_content check in call_openai below
-# for what happens when even this isn't enough).
-openai_budget=16384
+# for what happens when even this isn't enough). Rather than keep raising
+# one hardcoded number, this is a Settings-tab field (openai.max_tokens);
+# openai_max_tokens_setting (parsed/validated above) overrides the default.
+openai_budget="${openai_max_tokens_setting:-16384}"
 
 # claude-sonnet-5 runs adaptive extended thinking by default, which prepends
 # a "thinking" content block before the "text" block - max_tokens covers

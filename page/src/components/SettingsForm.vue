@@ -97,10 +97,16 @@
               Completely free and private — no API key, nothing leaves your network. The tradeoff: it's
               noticeably slower than a cloud API (especially without a GPU) — analysis runs as a
               background job and keeps waiting rather than timing out, but that can still mean many
-              minutes on modest hardware. Small local models are also less reliable at producing this
-              whole schema correctly in one shot; models tuned for structured/code output (e.g.
-              Qwen2.5-Coder) tend to do noticeably better here than general-purpose ones of similar size
-              (e.g. Llama 3.1).
+              minutes on modest hardware.
+            </v-alert>
+            <v-alert type="warning" variant="tonal" density="compact" class="mb-3">
+              <strong>Model choice matters a lot here.</strong> Avoid reasoning/"thinking" variants (names
+              like <code>-thinking</code>, <code>QwQ</code>, <code>DeepSeek-R1</code>) - this is structured
+              extraction, not multi-step logic, and a reasoning model mostly burns its token budget
+              narrating its thought process before ever producing the answer. Good fits, roughly best
+              first: <code>qwen2.5-coder:7b</code> (default) or <code>:14b</code> for better quality,
+              Mistral-Small/Mistral-Nemo, Phi-4. If pulling a Qwen3-family model, prefer its plain
+              <code>-instruct</code> tag over a thinking-enabled one.
             </v-alert>
             <div class="text-caption text-medium-emphasis mb-3">
               <strong>Setup:</strong> install Ollama (ollama.com) on a machine reachable from this MOS
@@ -123,6 +129,16 @@
               label="Model"
               :hint="ollamaModels.length ? 'Pulled on that host - pick one, or type a different name.' : 'Test the connection to list what\'s pulled there, or type a name directly.'"
               persistent-hint
+              class="mb-2"
+            />
+            <v-text-field
+              v-model.number="form.ollama.num_ctx"
+              type="number"
+              min="2048"
+              step="2048"
+              label="Context window (num_ctx)"
+              hint="Raise this if analysis fails saying the model ran out of context/budget. Higher uses more memory and can be slower."
+              persistent-hint
             />
           </v-expansion-panel-text>
         </v-expansion-panel>
@@ -140,6 +156,17 @@
               above covers local models with its own API. Cost and reliability depend entirely on
               what you point this at: OpenAI's cloud API is paid and generally reliable; a local
               server is free and private but inherits the same speed/quality tradeoffs as Ollama.
+            </v-alert>
+            <v-alert type="warning" variant="tonal" density="compact" class="mb-3">
+              <strong>If pointed at a local server, model choice matters a lot.</strong> Avoid
+              reasoning/"thinking" variants (names like <code>-thinking</code>, <code>QwQ</code>,
+              <code>DeepSeek-R1</code>) - this is structured extraction, not multi-step logic, and a
+              reasoning model mostly burns its token budget narrating its thought process before ever
+              producing the answer (seen in practice: a reasoning model exhausting its entire budget
+              this way with nothing written to its actual answer). Good fits:
+              <code>qwen2.5-coder:7b</code>/<code>:14b</code>, Mistral-Small/Mistral-Nemo, Phi-4. If
+              serving a Qwen3-family model, prefer its plain <code>-instruct</code> tag over a
+              thinking-enabled one.
             </v-alert>
             <div class="text-caption text-medium-emphasis mb-3">
               <strong>Setup (OpenAI cloud):</strong> platform.openai.com → API keys → Create new
@@ -174,6 +201,16 @@
               :items="openaiModels"
               label="Model"
               :hint="openaiModels.length ? 'Available on that server - pick one, or type a different name.' : 'Test the connection to list what\'s available, or type a name directly.'"
+              persistent-hint
+              class="mb-2"
+            />
+            <v-text-field
+              v-model.number="form.openai.max_tokens"
+              type="number"
+              min="1024"
+              step="1024"
+              label="Max output tokens"
+              hint="Raise this if analysis fails saying the model hit its token limit - common with reasoning models. Higher means a slower, more expensive request when it's actually needed."
               persistent-hint
             />
           </v-expansion-panel-text>
@@ -210,8 +247,8 @@ const form = reactive({
   provider: "anthropic",
   anthropic: { api_key: "", model: "claude-sonnet-5" },
   gemini: { api_key: "", model: "gemini-3.6-flash" },
-  ollama: { host: "http://localhost:11434", model: "qwen2.5-coder:7b" },
-  openai: { base_url: "https://api.openai.com/v1", api_key: "", model: "gpt-4o" },
+  ollama: { host: "http://localhost:11434", model: "qwen2.5-coder:7b", num_ctx: 16384 },
+  openai: { base_url: "https://api.openai.com/v1", api_key: "", model: "gpt-4o", max_tokens: 16384 },
   github_token: ""
 });
 const openPanel = ref("anthropic");
@@ -356,11 +393,16 @@ async function save() {
       provider: form.provider,
       anthropic: { api_key: form.anthropic.api_key.trim(), model: (form.anthropic.model || "").trim() },
       gemini: { api_key: form.gemini.api_key.trim(), model: (form.gemini.model || "").trim() },
-      ollama: { host: form.ollama.host.trim(), model: (form.ollama.model || "").trim() },
+      ollama: {
+        host: form.ollama.host.trim(),
+        model: (form.ollama.model || "").trim(),
+        num_ctx: Number(form.ollama.num_ctx) > 0 ? Math.round(Number(form.ollama.num_ctx)) : 16384
+      },
       openai: {
         base_url: form.openai.base_url.trim(),
         api_key: form.openai.api_key.trim(),
-        model: (form.openai.model || "").trim()
+        model: (form.openai.model || "").trim(),
+        max_tokens: Number(form.openai.max_tokens) > 0 ? Math.round(Number(form.openai.max_tokens)) : 16384
       },
       github_token: form.github_token.trim()
     };

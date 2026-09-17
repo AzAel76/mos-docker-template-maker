@@ -225,5 +225,14 @@ export const mosClient = {
     });
     if (!res.success) throw new Error("Could not clear history");
     return true;
+  },
+  async deleteHistoryEntry(id) {
+    const res = await request("/mos/plugins/query", {
+      method: "POST",
+      body: { command: "ai-template-maker-history", args: ["delete", id], timeout: 10, parse_json: true }
+    });
+    if (!res.success) throw new Error("Could not delete this history entry");
+    if (res.output?.error) throw new Error(res.output.error);
+    return Array.isArray(res.output) ? res.output : [];
   }
 };

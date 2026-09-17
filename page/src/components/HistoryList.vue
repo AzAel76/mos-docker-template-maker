@@ -14,7 +14,7 @@
       </div>
 
       <v-list v-else lines="two" class="bg-transparent">
-        <v-list-item v-for="(entry, i) in entries" :key="i" class="px-0">
+        <v-list-item v-for="(entry, i) in entries" :key="entry.id || i" class="px-0">
           <template #prepend>
             <v-icon
               :icon="entry.status === 'error' ? 'mdi-alert-circle-outline' : (entry.mode === 'compose' ? 'mdi-layers-outline' : 'mdi-package-variant')"
@@ -61,6 +61,17 @@
               title="Open repository"
               aria-label="Open repository in a new tab"
             />
+            <v-btn
+              v-if="entry.id"
+              icon="mdi-delete-outline"
+              size="small"
+              variant="text"
+              color="error"
+              :loading="deletingId === entry.id"
+              title="Delete this entry"
+              aria-label="Delete this history entry"
+              @click="deleteEntry(entry)"
+            />
           </template>
         </v-list-item>
       </v-list>
@@ -81,6 +92,7 @@ defineEmits(["open-result"]);
 const entries = ref([]);
 const loading = ref(true);
 const clearing = ref(false);
+const deletingId = ref(null);
 const error = ref("");
 
 const PROVIDER_NAMES = { anthropic: "Anthropic", gemini: "Gemini", ollama: "Ollama", openai: "OpenAI" };
@@ -110,6 +122,19 @@ async function load() {
     error.value = e.message;
   } finally {
     loading.value = false;
+  }
+}
+
+async function deleteEntry(entry) {
+  if (!confirm(`Delete this history entry for "${entry.repo}"? This can't be undone.`)) return;
+  deletingId.value = entry.id;
+  error.value = "";
+  try {
+    entries.value = await mosClient.deleteHistoryEntry(entry.id);
+  } catch (e) {
+    error.value = e.message;
+  } finally {
+    deletingId.value = null;
   }
 }
 
