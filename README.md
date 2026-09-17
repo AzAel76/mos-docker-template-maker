@@ -45,7 +45,11 @@ Hub-style install dialog before deploying.
   `ai-template-maker-analyze`'s own `call_ollama()` does the same reachability check itself
   as a preflight before every real analysis, so an unreachable host fails fast instead of
   hanging on the (deliberately timeout-free, since real analyses can take a while) generation
-  request.
+  request. That request also explicitly sets `options.num_ctx` (`ollama_num_ctx` in the
+  script, default 16384) - left unset, Ollama silently falls back to a model's Modelfile
+  default context window, often just 2048-4096 tokens, which is well under what the system
+  prompt plus a real README/Dockerfile/compose/env can need, causing silent truncation of
+  the actual repo content regardless of which model is configured.
 - **`settings.json`** — default plugin settings: a `provider` (`anthropic`/`gemini`/`ollama`)
   plus each provider's own config block (API key/model, or host/model for Ollama) and an
   optional GitHub token. Editable from the plugin's Settings tab and stored at

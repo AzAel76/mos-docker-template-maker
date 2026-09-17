@@ -88,7 +88,7 @@ fi
 case "$provider" in
   anthropic) model="${model:-claude-sonnet-5}" ;;
   gemini)    model="${model:-gemini-2.5-flash}" ;;
-  ollama)    model="${model:-llama3.1}"; ollama_host="${ollama_host:-http://localhost:11434}" ;;
+  ollama)    model="${model:-qwen2.5-coder:7b}"; ollama_host="${ollama_host:-http://localhost:11434}" ;;
   *) fail "Unknown provider '${provider}' (expected anthropic, gemini, or ollama)" ;;
 esac
 
@@ -355,6 +355,20 @@ EOF
 # string, possibly fenced) and fail()s itself on any error/truncation.
 budget=8192
 
+# Ollama-only: the request context window. Anthropic/Gemini have context
+# windows large enough that the truncation budget above "comfortably fits"
+# (see trunc()'s comment) without any extra configuration; Ollama has no
+# such guarantee and, left unset, silently falls back to whatever a given
+# model's Modelfile defaults to - commonly just 2048-4096 tokens for many
+# pulled models. The system prompt alone runs ~1,200 tokens, and a single
+# real-world README can be 30-50KB (~7,500-12,500 tokens) before even
+# adding a Dockerfile/compose/env file on top - well past a default that
+# small, silently truncating away the very content this whole prompt is
+# built around. 16384 comfortably covers a typical repo's worth of input
+# plus a large generated template; if a specific model/repo still needs
+# more, this is the one place to raise it.
+ollama_num_ctx=16384
+
 # claude-sonnet-5 runs adaptive extended thinking by default, which prepends
 # a "thinking" content block before the "text" block - max_tokens covers
 # both, and content[0] is the thinking block, not the answer. Request
@@ -432,12 +446,13 @@ call_ollama() {
     || fail "Could not reach Ollama at ${ollama_host} - is it running and reachable from the MOS host?"
 
   request_body=$(jq -n \
-    --arg model "$model" \
+    --arg model "$model" --argjson num_ctx "$ollama_num_ctx" \
     --arg system "$system_prompt" --arg user "$user_content" \
     '{
       model: $model,
       stream: false,
       format: "json",
+      options: {num_ctx: $num_ctx},
       messages: [{role:"system", content:$system}, {role:"user", content:$user}]
     }')
 

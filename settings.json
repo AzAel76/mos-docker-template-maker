@@ -10,7 +10,7 @@
   },
   "ollama": {
     "host": "http://localhost:11434",
-    "model": "llama3.1"
+    "model": "qwen2.5-coder:7b"
   },
   "github_token": ""
 }

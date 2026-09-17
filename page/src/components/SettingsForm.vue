@@ -67,14 +67,16 @@
           <v-expansion-panel-text>
             <v-alert type="info" variant="tonal" density="compact" class="mb-3">
               Completely free and private — no API key, nothing leaves your network. The tradeoff: it's
-              noticeably slower than a cloud API (especially without a GPU), and small local models are
-              less reliable at producing this whole schema correctly in one shot. A slow model can also
-              exceed MOS's 60-second query timeout, in which case the analysis just fails.
+              noticeably slower than a cloud API (especially without a GPU) — analysis runs as a
+              background job and keeps waiting rather than timing out, but that can still mean several
+              minutes. Small local models are also less reliable at producing this whole schema correctly
+              in one shot; models tuned for structured/code output (e.g. Qwen2.5-Coder) tend to do
+              noticeably better here than general-purpose ones of similar size (e.g. Llama 3.1).
             </v-alert>
             <div class="text-caption text-medium-emphasis mb-3">
               <strong>Setup:</strong> install Ollama (ollama.com) on a machine reachable from this MOS
-              host → run <code>ollama pull llama3.1</code> (or another model) → make sure its API port
-              (default 11434) is reachable from this host → set the host/model below.
+              host → run <code>ollama pull qwen2.5-coder:7b</code> (or another model) → make sure its API
+              port (default 11434) is reachable from this host → set the host/model below.
             </div>
             <v-text-field v-model="form.ollama.host" label="Ollama host" hint="e.g. http://192.168.1.10:11434" persistent-hint class="mb-2" />
             <v-text-field v-model="form.ollama.model" label="Model" hint="must already be pulled on that host" persistent-hint class="mb-2" />
@@ -118,7 +120,7 @@ const form = reactive({
   provider: "anthropic",
   anthropic: { api_key: "", model: "claude-sonnet-5" },
   gemini: { api_key: "", model: "gemini-2.5-flash" },
-  ollama: { host: "http://localhost:11434", model: "llama3.1" },
+  ollama: { host: "http://localhost:11434", model: "qwen2.5-coder:7b" },
   github_token: ""
 });
 const openPanel = ref("anthropic");
