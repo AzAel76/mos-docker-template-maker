@@ -18,7 +18,6 @@
 set -uo pipefail
 
 PLUGIN_NAME="ai-template-maker"
-JOBS_DIR="/boot/optional/plugins/${PLUGIN_NAME}/jobs"
 ANALYZE_BIN="/usr/bin/plugins/${PLUGIN_NAME}-analyze"
 
 fail() {
@@ -28,6 +27,22 @@ fail() {
 
 command -v jq >/dev/null 2>&1 || fail "jq is required on the MOS host"
 [[ -x "$ANALYZE_BIN" ]] || fail "${ANALYZE_BIN} not found or not executable"
+
+# MOS boots from a USB drive into RAM and only writes back to that same
+# USB for things meant to persist across reboots - limited write
+# endurance, meant for occasional config writes, not the handful of small
+# files this creates/updates on every single analysis. Prefer the real
+# storage pool instead (same /boot/config/docker.json .appdata setting
+# ai-template-maker-analyze's own remap_appdata_paths() resolves docker
+# host paths against), falling back to the boot-resident plugin directory
+# only if no pool is configured yet.
+plugin_data_pool=$(jq -r '.appdata // empty' /boot/config/docker.json 2>/dev/null)
+if [[ -n "$plugin_data_pool" ]]; then
+  DATA_DIR="${plugin_data_pool%/}/${PLUGIN_NAME}"
+else
+  DATA_DIR="/boot/optional/plugins/${PLUGIN_NAME}"
+fi
+JOBS_DIR="${DATA_DIR}/jobs"
 
 repo_url="${1:-}"
 [[ -n "$repo_url" ]] || fail "A repository URL is required"

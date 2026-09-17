@@ -45,11 +45,26 @@ Hub-style install dialog before deploying.
   (`mosClient.analyzeRepo`'s `maxWaitMs`) if it's still running, but the job itself keeps going
   on the MOS host regardless - `-cancel` (wired to the Analyze tab's Cancel button) is what
   actually stops it, by killing the whole recorded process group, not just abandoning the poll
-  loop. Job state lives under `/boot/optional/plugins/ai-template-maker/jobs/<job-id>/` and
-  self-prunes after 6 hours - deliberately well above the longest a client will ever wait, so a
-  second analysis starting mid-run can't prune a still-active job's directory out from under it.
+  loop. Job state self-prunes after 6 hours - deliberately well above the longest a client will
+  ever wait, so a second analysis starting mid-run can't prune a still-active job's directory
+  out from under it.
 - **`bin/ai-template-maker-history`** — a bash script, installed alongside the above, that
   serves the history file (`list`) or resets it (`clear`) for the History tab.
+
+### Where plugin data actually lives
+
+MOS boots from a USB drive into RAM and only writes back to that same USB for things meant to
+persist across reboots - fine for occasional config, not for a file rewritten on every single
+analysis. `settings.json`'s location is fixed by MOS's own plugin settings API (written via
+`POST /mos/plugins/settings/<name>`, not by this plugin directly) to
+`/boot/optional/plugins/ai-template-maker/settings.json` - acceptable, since it's only written
+on an explicit Settings-tab Save. `history.json` and the `jobs/` directory are this plugin's own
+choice of location, though, and get written far more often - both now resolve to
+`<pool-appdata>/ai-template-maker/` (the same `/boot/config/docker.json` `.appdata` setting
+`remap_appdata_paths()` already resolves docker host paths against) instead, falling back to the
+boot-resident path only if no pool is configured yet. `ai-template-maker-analyze`,
+`-history`, `-analyze-start`, `-analyze-status`, and `-analyze-cancel` all resolve this
+identically, since a job/history file written by one has to be found by the others.
 - **`bin/ai-template-maker-test-ollama`** / **`-test-anthropic`** / **`-test-gemini`** /
   **`-test-openai`** — a reachability + model-availability check per provider
   (`GET <host>/api/tags`, `GET /v1/models`, `GET /v1beta/models`, `GET <base_url>/models`),

@@ -13,7 +13,6 @@
 set -uo pipefail
 
 PLUGIN_NAME="ai-template-maker"
-HISTORY_FILE="/boot/optional/plugins/${PLUGIN_NAME}/history.json"
 
 fail() {
   jq -n --arg msg "$1" '{error:$msg}'
@@ -21,6 +20,20 @@ fail() {
 }
 
 command -v jq >/dev/null 2>&1 || fail "jq is required on the MOS host"
+
+# Same resolution as ai-template-maker-analyze (which is what actually
+# writes this file) - must match exactly, or this script would be looking
+# in the wrong place for what that one wrote. See its DATA_DIR comment for
+# why this isn't just /boot/optional/plugins/<name> unconditionally: that
+# path is the USB boot device MOS loads into RAM, meant for occasional
+# config writes, not a file rewritten on every analysis.
+plugin_data_pool=$(jq -r '.appdata // empty' /boot/config/docker.json 2>/dev/null)
+if [[ -n "$plugin_data_pool" ]]; then
+  DATA_DIR="${plugin_data_pool%/}/${PLUGIN_NAME}"
+else
+  DATA_DIR="/boot/optional/plugins/${PLUGIN_NAME}"
+fi
+HISTORY_FILE="${DATA_DIR}/history.json"
 
 op="${1:-list}"
 

@@ -21,8 +21,14 @@
 set -uo pipefail
 
 PLUGIN_NAME="ai-template-maker"
+# settings.json's location is dictated by MOS's own plugin settings API
+# (we write it via POST /mos/plugins/settings/<name>, not directly), and
+# that's boot-USB-resident - fine, since it's only written on an explicit
+# Settings-tab Save, same low frequency as any of MOS's own config. What
+# we DO control is where history.json and the jobs/ directory live, and
+# those get written far more often (every single analysis) - see DATA_DIR
+# below for why they don't default to sharing that same boot-resident path.
 SETTINGS_FILE="/boot/optional/plugins/${PLUGIN_NAME}/settings.json"
-HISTORY_FILE="/boot/optional/plugins/${PLUGIN_NAME}/history.json"
 
 fail() {
   jq -n --arg msg "$1" '{error:$msg}'
@@ -43,6 +49,22 @@ trim() {
 
 command -v jq >/dev/null 2>&1 || { echo '{"error":"jq is required on the MOS host"}'; exit 0; }
 command -v curl >/dev/null 2>&1 || { echo '{"error":"curl is required on the MOS host"}'; exit 0; }
+
+# MOS boots this whole system from a USB drive into RAM and only writes
+# back to that same USB for things meant to persist across reboots -
+# limited write endurance, meant for occasional config writes, not a file
+# rewritten on every single analysis. /boot/config/docker.json's .appdata
+# is the real storage-pool location remap_appdata_paths() below already
+# resolves docker host paths against; reused here for the same reason, on
+# the same pool, with the boot-resident path only as a fallback for a box
+# with no pool configured yet (e.g. before initial setup).
+plugin_data_pool=$(jq -r '.appdata // empty' /boot/config/docker.json 2>/dev/null)
+if [[ -n "$plugin_data_pool" ]]; then
+  DATA_DIR="${plugin_data_pool%/}/${PLUGIN_NAME}"
+else
+  DATA_DIR="/boot/optional/plugins/${PLUGIN_NAME}"
+fi
+HISTORY_FILE="${DATA_DIR}/history.json"
 
 repo_url="${1:-}"
 [[ -n "$repo_url" ]] || fail "A repository URL is required"
