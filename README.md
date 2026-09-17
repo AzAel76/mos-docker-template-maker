@@ -92,7 +92,13 @@ identically, since a job/history file written by one has to be found by the othe
   whole budget on a `reasoning_content` field and hit the length limit before ever writing to
   `content` - reasoning-capable local models (Qwen3, DeepSeek-R1, QwQ, etc.) are common on
   exactly the kind of self-hosted server this provider also covers, and without this check that
-  failure just looked like a generic, unexplained "returned no content".
+  failure just looked like a generic, unexplained "returned no content". `call_anthropic()` and
+  `call_gemini()` - the two oldest provider functions, written before this exit-code/HTTP-body
+  capturing pattern existed - were still on the original `curl -sf ... || fail "<generic
+  message>"` form, so a real API error (bad model name, quota exceeded, bad key, etc.) came
+  through as a bare "Gemini API request failed"/"Claude API request failed" with no way to tell
+  what actually went wrong. Both now match the other two: exit code on an unreachable host, the
+  actual HTTP status and `error.message` body on an API-level failure.
 - **`settings.json`** — default plugin settings: a `provider`
   (`anthropic`/`gemini`/`ollama`/`openai`) plus each provider's own config block (API key/model
   for Anthropic/Gemini; host/model for Ollama; a configurable `base_url` plus optional API

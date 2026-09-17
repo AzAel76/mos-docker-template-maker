@@ -475,12 +475,30 @@ call_anthropic() {
       messages: [{role:"user", content:$user}]
     }')
 
-  response=$(curl -sf \
+  # No -f here, same reasoning as every other provider's request: on an
+  # HTTP error the body is a {"error":{"message":"..."}} worth surfacing
+  # directly rather than discarding for a generic "request failed" (which
+  # this itself used to do, before catching the same gap in Gemini below
+  # prompted a look at whether Anthropic had it too - it did).
+  local http_status response_file
+  response_file=$(mktemp)
+  http_status=$(curl -s -o "$response_file" -w '%{http_code}' \
     -H "x-api-key: ${api_key}" \
     -H "anthropic-version: 2023-06-01" \
     -H "content-type: application/json" \
     -d "$request_body" \
-    "https://api.anthropic.com/v1/messages") || fail "Claude API request failed"
+    "https://api.anthropic.com/v1/messages")
+  local curl_rc=$?
+  response=$(cat "$response_file" 2>/dev/null)
+  rm -f "$response_file"
+
+  [[ $curl_rc -eq 0 ]] \
+    || fail "Could not reach api.anthropic.com (curl exit ${curl_rc}) - is this MOS host's network reachable?"
+  if [[ "$http_status" != "200" ]]; then
+    local api_err
+    api_err=$(echo "$response" | jq -r '.error.message // empty' 2>/dev/null)
+    fail "Claude API returned HTTP ${http_status}${api_err:+: ${api_err}}"
+  fi
 
   stop_reason=$(echo "$response" | jq -r '.stop_reason // empty')
   # Content is an array of typed blocks (thinking, text, ...) - find the text
@@ -503,11 +521,26 @@ call_gemini() {
       generationConfig: {responseMimeType: "application/json", maxOutputTokens: $budget}
     }')
 
-  response=$(curl -sf \
+  # No -f here, same reasoning as every other provider's request: on an
+  # HTTP error the body is a {"error":{"message":"..."}} worth surfacing
+  # directly rather than discarding for a generic "request failed".
+  local http_status response_file
+  response_file=$(mktemp)
+  http_status=$(curl -s -o "$response_file" -w '%{http_code}' \
     -H "content-type: application/json" \
     -d "$request_body" \
-    "https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${api_key}") \
-    || fail "Gemini API request failed"
+    "https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${api_key}")
+  local curl_rc=$?
+  response=$(cat "$response_file" 2>/dev/null)
+  rm -f "$response_file"
+
+  [[ $curl_rc -eq 0 ]] \
+    || fail "Could not reach generativelanguage.googleapis.com (curl exit ${curl_rc}) - is this MOS host's network reachable?"
+  if [[ "$http_status" != "200" ]]; then
+    local api_err
+    api_err=$(echo "$response" | jq -r '.error.message // empty' 2>/dev/null)
+    fail "Gemini API returned HTTP ${http_status}${api_err:+: ${api_err}}"
+  fi
 
   finish_reason=$(echo "$response" | jq -r '.candidates[0].finishReason // empty')
   raw_text=$(echo "$response" | jq -r '.candidates[0].content.parts[0].text // empty')
