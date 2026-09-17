@@ -422,6 +422,15 @@ call_gemini() {
 # a slow first-token cold start behind MOS's 60s query timeout.
 call_ollama() {
   local request_body response
+  # Fail fast if the host isn't reachable at all, rather than waiting on
+  # curl's default (very long, sometimes minutes) connect behavior on the
+  # real generation request below - that request has no timeout of its
+  # own since a real analysis can legitimately take a while on this
+  # provider (see ai-template-maker-analyze-start), so an unreachable host
+  # would otherwise just hang instead of failing.
+  curl -sf --connect-timeout 5 --max-time 10 "${ollama_host%/}/api/tags" >/dev/null \
+    || fail "Could not reach Ollama at ${ollama_host} - is it running and reachable from the MOS host?"
+
   request_body=$(jq -n \
     --arg model "$model" \
     --arg system "$system_prompt" --arg user "$user_content" \

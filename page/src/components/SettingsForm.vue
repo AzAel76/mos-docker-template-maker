@@ -77,7 +77,14 @@
               (default 11434) is reachable from this host → set the host/model below.
             </div>
             <v-text-field v-model="form.ollama.host" label="Ollama host" hint="e.g. http://192.168.1.10:11434" persistent-hint class="mb-2" />
-            <v-text-field v-model="form.ollama.model" label="Model" hint="must already be pulled on that host" persistent-hint />
+            <v-text-field v-model="form.ollama.model" label="Model" hint="must already be pulled on that host" persistent-hint class="mb-2" />
+
+            <v-alert v-if="ollamaTestResult" :type="ollamaTestResult.type" variant="tonal" density="compact" class="mb-2">
+              {{ ollamaTestResult.message }}
+            </v-alert>
+            <v-btn variant="tonal" size="small" :loading="testingOllama" :disabled="!form.ollama.host" @click="testOllama">
+              Test connection
+            </v-btn>
           </v-expansion-panel-text>
         </v-expansion-panel>
       </v-expansion-panels>
@@ -118,6 +125,8 @@ const openPanel = ref("anthropic");
 const saving = ref(false);
 const saved = ref(false);
 const error = ref("");
+const testingOllama = ref(false);
+const ollamaTestResult = ref(null);
 
 watch(
   () => form.provider,
@@ -125,6 +134,34 @@ watch(
     openPanel.value = p;
   }
 );
+
+watch(
+  () => [form.ollama.host, form.ollama.model],
+  () => {
+    ollamaTestResult.value = null;
+  }
+);
+
+async function testOllama() {
+  testingOllama.value = true;
+  ollamaTestResult.value = null;
+  try {
+    const result = await mosClient.testOllamaConnection(form.ollama.host, form.ollama.model);
+    if (result.model_found === false) {
+      const available = result.models.length ? result.models.join(", ") : "none";
+      ollamaTestResult.value = {
+        type: "warning",
+        message: `Connected, but "${form.ollama.model}" isn't pulled on that host yet. Available: ${available}.`
+      };
+    } else {
+      ollamaTestResult.value = { type: "success", message: `Connected. ${result.models.length} model(s) available.` };
+    }
+  } catch (e) {
+    ollamaTestResult.value = { type: "error", message: e.message };
+  } finally {
+    testingOllama.value = false;
+  }
+}
 
 onMounted(async () => {
   try {

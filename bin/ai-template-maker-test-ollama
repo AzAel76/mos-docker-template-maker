@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Invoked via MOS's synchronous plugin query endpoint:
+#   POST /mos/plugins/query {command:"ai-template-maker-test-ollama", args:[host, model], parse_json:true}
+# model is optional. Quick reachability/model-availability check for an
+# Ollama host - used by the Settings tab's "Test connection" button so a
+# bad host/model can be caught while configuring, before ever running a
+# real (potentially multi-minute) analysis against it. Deliberately
+# separate from ai-template-maker-analyze's own preflight check (see its
+# call_ollama()) rather than shared, since this one needs to report model
+# availability back to the UI, not just pass/fail.
+#
+# Prints {"ok":true, "models":[...], "model_found":true|false|null} on
+# success (model_found is null when no model arg was given), or
+# {"ok":false, "error":"..."} on failure. Always exits 0.
+set -uo pipefail
+
+fail() {
+  jq -n --arg msg "$1" '{ok:false, error:$msg}'
+  exit 0
+}
+
+command -v jq >/dev/null 2>&1 || fail "jq is required on the MOS host"
+command -v curl >/dev/null 2>&1 || fail "curl is required on the MOS host"
+
+host="${1:-}"
+[[ -n "$host" ]] || fail "An Ollama host is required"
+model="${2:-}"
+
+response=$(curl -sf --connect-timeout 5 --max-time 10 "${host%/}/api/tags") \
+  || fail "Could not reach Ollama at ${host} - is it running and reachable from the MOS host?"
+
+echo "$response" | jq empty 2>/dev/null || fail "Ollama responded, but not with valid JSON - is ${host} actually an Ollama server?"
+
+models_json=$(echo "$response" | jq -c '[.models[]? | (.name // .model // empty)] | unique')
+
+if [[ -n "$model" ]]; then
+  # Lenient match: exact name, or the model's own name used as a tag
+  # prefix (a user typing "llama3.1" should match Ollama listing it as
+  # "llama3.1:latest" or "llama3.1:8b").
+  model_found=$(echo "$response" | jq --arg m "$model" '
+    [.models[]? | (.name // .model // "")] | any(. == $m or startswith($m + ":"))
+  ')
+else
+  model_found="null"
+fi
+
+jq -n --argjson models "$models_json" --argjson found "$model_found" '{ok:true, models:$models, model_found:$found}'

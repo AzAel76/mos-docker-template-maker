@@ -39,6 +39,13 @@ Hub-style install dialog before deploying.
   `/boot/optional/plugins/ai-template-maker/jobs/<job-id>/` and self-prunes after an hour.
 - **`bin/ai-template-maker-history`** — a bash script, installed alongside the above, that
   serves the history file (`list`) or resets it (`clear`) for the History tab.
+- **`bin/ai-template-maker-test-ollama`** — a quick reachability/model-availability check
+  (`GET <host>/api/tags`) for an Ollama host, backing the Ollama panel's "Test connection"
+  button in Settings. Tests whatever's currently typed in the form, not what's saved.
+  `ai-template-maker-analyze`'s own `call_ollama()` does the same reachability check itself
+  as a preflight before every real analysis, so an unreachable host fails fast instead of
+  hanging on the (deliberately timeout-free, since real analyses can take a while) generation
+  request.
 - **`settings.json`** — default plugin settings: a `provider` (`anthropic`/`gemini`/`ollama`)
   plus each provider's own config block (API key/model, or host/model for Ollama) and an
   optional GitHub token. Editable from the plugin's Settings tab and stored at

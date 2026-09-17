@@ -144,6 +144,31 @@ export const mosClient = {
       return [];
     }
   },
+  async testOllamaConnection(host, model) {
+    // Tests whatever's currently typed in the Settings form, not what's
+    // saved - so a bad host/model can be caught while configuring,
+    // before ever running a real (potentially multi-minute) analysis
+    // against it. Returns {ok, models, model_found} on success.
+    const res = await request("/mos/plugins/query", {
+      method: "POST",
+      body: {
+        command: "ai-template-maker-test-ollama",
+        args: model ? [host, model] : [host],
+        timeout: 15,
+        parse_json: true
+      }
+    });
+    if (!res.success) {
+      throw new Error(typeof res.output === "string" ? res.output : `Could not test connection (exit ${res.exit_code})`);
+    }
+    if (!res.output || typeof res.output !== "object") {
+      throw new Error("Test script did not return valid JSON");
+    }
+    if (!res.output.ok) {
+      throw new Error(res.output.error || "Connection test failed");
+    }
+    return res.output;
+  },
   createStack({ name, yaml, env, icon, webui, autostart = false, no_autoupdate = false }) {
     return request("/docker/mos/compose/stacks", {
       method: "POST",
