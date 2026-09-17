@@ -129,6 +129,21 @@ export const mosClient = {
   createContainer(template) {
     return request("/docker/mos/create", { method: "POST", body: template });
   },
+  async getUsedPorts() {
+    // GET /api/v1/docker/mos/ports (confirmed against mos-api's
+    // docker.service.js getDockerPorts, the same endpoint the native
+    // create/compose dialogs' "Inspect"/"show used ports" panel uses) -
+    // returns a bare array of {port, proto, name, status} for every host
+    // port currently bound by an existing container. Best-effort: a
+    // failure here (e.g. no docker.sock access) shouldn't block install,
+    // it just means no conflict warning gets shown.
+    try {
+      const ports = await request("/docker/mos/ports");
+      return Array.isArray(ports) ? ports : [];
+    } catch {
+      return [];
+    }
+  },
   createStack({ name, yaml, env, icon, webui, autostart = false, no_autoupdate = false }) {
     return request("/docker/mos/compose/stacks", {
       method: "POST",

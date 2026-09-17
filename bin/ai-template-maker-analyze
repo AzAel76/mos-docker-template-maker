@@ -34,6 +34,14 @@ command -v curl >/dev/null 2>&1 || { echo '{"error":"curl is required on the MOS
 
 repo_url="${1:-}"
 [[ -n "$repo_url" ]] || fail "A repository URL is required"
+# Strip a trailing query string/fragment (e.g. "?ref=selfh.st" from a
+# selfh.st referral link, or a "#readme" anchor) before parsing. Without
+# this, the owner/repo regex below has no "/" to stop the repo-name
+# capture group at, so it swallows the whole thing - "ytzero?ref=selfh.st"
+# becomes the "repo name", which then leaks into the docker/stack name,
+# the OCI source label, and the history entry.
+repo_url="${repo_url%%\?*}"
+repo_url="${repo_url%%#*}"
 
 scope="${2:-required}"
 case "$scope" in
@@ -89,10 +97,18 @@ if [[ "$provider" != "ollama" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Parse owner/repo out of the given URL.
+# Parse owner/repo out of the given URL. Trailing slash and .git are
+# stripped via parameter expansion rather than baked into the regex below:
+# `sed -E` is POSIX extended regex, which has no lazy/non-greedy quantifier,
+# so a naive "[^/]+?(\.git)?/?$" doesn't actually make ".git" optional the
+# way it looks like it should - it was matching greedily and leaving
+# ".git" stuck in the captured repo name.
 # ---------------------------------------------------------------------------
-owner_repo=$(echo "$repo_url" | sed -E 's#^https?://(www\.)?github\.com/([^/]+/[^/]+?)(\.git)?/?$#\2#')
-[[ "$owner_repo" != "$repo_url" && "$owner_repo" == */* ]] || fail "Could not parse a GitHub owner/repo from: $repo_url"
+normalized_url="${repo_url%/}"
+normalized_url="${normalized_url%.git}"
+normalized_url="${normalized_url%/}"
+owner_repo=$(echo "$normalized_url" | sed -E 's#^https?://(www\.)?github\.com/([^/]+/[^/]+)$#\2#')
+[[ "$owner_repo" != "$normalized_url" && "$owner_repo" == */* ]] || fail "Could not parse a GitHub owner/repo from: $repo_url"
 # Canonical form, independent of how the user typed the input (trailing
 # slash, .git suffix, www.) - used for the OCI source label below.
 repo_full_url="https://github.com/${owner_repo}"
@@ -274,7 +290,11 @@ ${scope_rule}
 - Use real values from the provided README/Dockerfile/compose/env
   content: the actual image tag, actual ports, actual container-side
   volume paths. Do not invent ports or container paths that aren't
-  evidenced in the input.
+  evidenced in the input. In particular, do NOT default to a framework's
+  usual port (e.g. 3000 for Node.js, 8080 for a generic web app) - if a
+  Dockerfile's EXPOSE/ENV PORT, a compose file's ports mapping, or the
+  README states a specific port, use that exact number even if it's an
+  unusual choice.
 - Host-side paths follow different conventions per mode, and this
   overrides whatever host path the repo's own docs happen to show
   (they're written for the repo author's machine, not this one):

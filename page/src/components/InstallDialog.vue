@@ -70,7 +70,17 @@
               </v-row>
               <v-row class="mt-n2">
                 <v-col cols="6">
-                  <v-text-field label="Host" v-model="row.host" density="compact" :error="!!row.host && !/^[0-9.-]+$/.test(row.host)" />
+                  <v-text-field
+                    label="Host"
+                    v-model="row.host"
+                    density="compact"
+                    hide-details
+                    :error="!!row.host && !/^[0-9.-]+$/.test(row.host)"
+                  />
+                  <div v-if="portConflict(row)" class="text-caption text-warning mt-1">
+                    <v-icon size="14" class="mr-1">mdi-alert</v-icon>
+                    Already used by "{{ portConflict(row).name || 'another container' }}" ({{ portConflict(row).status }})
+                  </div>
                 </v-col>
                 <v-col cols="6">
                   <v-text-field label="Container" v-model="row.container" density="compact" :error="!!row.container && !/^[0-9.-]+$/.test(row.container)" />
@@ -185,6 +195,7 @@ const mode = ref("docker");
 const installing = ref(false);
 const installError = ref("");
 const installedOk = ref(false);
+const usedPorts = ref([]);
 
 watch(
   () => props.result,
@@ -209,6 +220,11 @@ watch(
       local.value.post_parameters ??= "";
       local.value.privileged ??= false;
       local.value.no_autoupdate ??= false;
+      // Best-effort - same panel data as the native dialog's "Inspect"
+      // link, just used here to flag a collision instead of just listing.
+      mosClient.getUsedPorts().then((ports) => {
+        usedPorts.value = ports;
+      });
     } else {
       local.value.template ??= {};
       local.value.env ??= "";
@@ -217,6 +233,12 @@ watch(
   },
   { immediate: true }
 );
+
+function portConflict(row) {
+  if (!row.host) return null;
+  const proto = (row.protocol || "tcp").toLowerCase();
+  return usedPorts.value.find((p) => String(p.port) === String(row.host) && (p.proto || "tcp").toLowerCase() === proto) || null;
+}
 
 const displayName = computed(() => (mode.value === "compose" ? local.value?.name : local.value?.name) || "");
 const icon = computed({
