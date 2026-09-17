@@ -8,8 +8,8 @@ var exportSet = /* @__PURE__ */ new Set([
 	"_export_sfc"
 ]);
 var moduleMap = { "./Plugin": () => {
-	dynamicLoadingCss(["style-BGfgLt6B.css"], false, "./Plugin");
-	return __federation_import("./__federation_expose_Plugin-CPfNbVEu.js").then((module) => Object.keys(module).every((item) => exportSet.has(item)) ? () => module.default : () => module);
+	dynamicLoadingCss(["style-BZGWrRL8.css"], false, "./Plugin");
+	return __federation_import("./__federation_expose_Plugin-C8I2RB9C.js").then((module) => Object.keys(module).every((item) => exportSet.has(item)) ? () => module.default : () => module);
 } };
 var seen = {};
 var dynamicLoadingCss = (cssFilePaths, dontAppendStylesToHead, exposeItemName) => {
