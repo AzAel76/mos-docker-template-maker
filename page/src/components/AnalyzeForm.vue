@@ -70,15 +70,25 @@ const providerLabel = computed(() => {
       return "Ollama (local)";
     case "anthropic":
       return "Anthropic (Claude)";
+    case "openai":
+      return "OpenAI-compatible";
     default:
       return "";
   }
 });
-const analyzingHint = computed(() =>
-  currentProvider.value === "ollama"
-    ? " — a local model can take several minutes with no GPU; this keeps waiting until it finishes."
-    : " — this is usually quick."
-);
+const analyzingHint = computed(() => {
+  if (currentProvider.value === "ollama") {
+    return " — a local model can take several minutes with no GPU; this keeps waiting until it finishes.";
+  }
+  if (currentProvider.value === "openai") {
+    // Unlike Ollama, "openai" could be the real cloud API (fast) or a
+    // local server pointed at by its base_url (just as slow as Ollama can
+    // be) - this only knows the provider name, not which, so it can't
+    // promise either way.
+    return " — speed depends on whether this is pointed at a cloud or local server.";
+  }
+  return " — this is usually quick.";
+});
 
 let controller = null;
 let currentJobId = null;

@@ -1,8 +1,9 @@
 # AI Template Maker
 
-A [MOS](https://mos-official.net) plugin that uses an LLM (Anthropic, Gemini, or a local
-Ollama model) to turn a GitHub repository's README / Dockerfile / Compose file into a
-MOS app template, resolves an icon from [selfh.st/icons](https://selfh.st/icons/) or
+A [MOS](https://mos-official.net) plugin that uses an LLM (Anthropic, Gemini, a local Ollama
+model, or any OpenAI-compatible API/server) to turn a GitHub repository's README /
+Dockerfile / Compose file into a MOS app template, resolves an icon from
+[selfh.st/icons](https://selfh.st/icons/) or
 [dashboard-icons](https://github.com/homarr-labs/dashboard-icons), and shows a MOS
 Hub-style install dialog before deploying.
 
@@ -49,26 +50,34 @@ Hub-style install dialog before deploying.
   second analysis starting mid-run can't prune a still-active job's directory out from under it.
 - **`bin/ai-template-maker-history`** — a bash script, installed alongside the above, that
   serves the history file (`list`) or resets it (`clear`) for the History tab.
-- **`bin/ai-template-maker-test-ollama`** / **`-test-anthropic`** / **`-test-gemini`** — a
-  reachability + model-availability check per provider (`GET <host>/api/tags`,
-  `GET /v1/models`, `GET /v1beta/models`), backing each panel's "Test connection" button in
-  Settings and populating its model field's dropdown. Tests whatever's currently typed in the
-  form, not what's saved. `ai-template-maker-analyze`'s own `call_ollama()` does the same
-  reachability check itself as a preflight before every real analysis (so an unreachable host
-  fails fast instead of hanging on the deliberately timeout-free generation request below), and
-  also resolves the configured model name against that same response - Ollama's `/api/chat`
-  needs an exact tag match (a bare `qwen2.5-coder` only resolves if a `:latest` tag happens to
-  exist), so using the configured string verbatim could pass the Settings tab's lenient test yet
-  still get rejected with an opaque HTTP error at generation time. Resolving up front to the
-  exact matched tag means anything that passes the test is guaranteed to also work, and a
-  genuine mismatch fails immediately with a clear message (and the actual pulled-model list)
-  instead of a bare curl exit code. That request also explicitly sets `options.num_ctx`
+- **`bin/ai-template-maker-test-ollama`** / **`-test-anthropic`** / **`-test-gemini`** /
+  **`-test-openai`** — a reachability + model-availability check per provider
+  (`GET <host>/api/tags`, `GET /v1/models`, `GET /v1beta/models`, `GET <base_url>/models`),
+  backing each panel's "Test connection" button in Settings and populating its model field's
+  dropdown. Tests whatever's currently typed in the form, not what's saved.
+  `ai-template-maker-analyze`'s own `call_ollama()` does the same reachability check itself
+  as a preflight before every real analysis (so an unreachable host fails fast instead of
+  hanging on the deliberately timeout-free generation request below), and also resolves the
+  configured model name against that same response - Ollama's `/api/chat` needs an exact tag
+  match (a bare `qwen2.5-coder` only resolves if a `:latest` tag happens to exist), so using
+  the configured string verbatim could pass the Settings tab's lenient test yet still get
+  rejected with an opaque HTTP error at generation time. Resolving up front to the exact
+  matched tag means anything that passes the test is guaranteed to also work, and a genuine
+  mismatch fails immediately with a clear message (and the actual pulled-model list) instead
+  of a bare curl exit code. `call_openai()` does the same model-resolution lookup, but softer:
+  a mismatch there falls back to the configured name verbatim rather than failing outright,
+  since "OpenAI-compatible" spans too many different servers to trust every `/models` response
+  as authoritative the way Ollama's can be. That request also explicitly sets `options.num_ctx`
   (`ollama_num_ctx` in the script, default 16384) - left unset, Ollama silently falls back to a
   model's Modelfile default context window, often just 2048-4096 tokens, which is well under
   what the system prompt plus a real README/Dockerfile/compose/env can need, causing silent
   truncation of the actual repo content regardless of which model is configured.
-- **`settings.json`** — default plugin settings: a `provider` (`anthropic`/`gemini`/`ollama`)
-  plus each provider's own config block (API key/model, or host/model for Ollama) and an
+- **`settings.json`** — default plugin settings: a `provider`
+  (`anthropic`/`gemini`/`ollama`/`openai`) plus each provider's own config block (API key/model
+  for Anthropic/Gemini; host/model for Ollama; a configurable `base_url` plus optional API
+  key/model for OpenAI-compatible - the base URL is what lets that provider mean either the
+  real OpenAI cloud API or a local server speaking the same Chat Completions format, e.g. LM
+  Studio, vLLM's OpenAI server, text-generation-webui, LocalAI) and an
   optional GitHub token. Editable from the plugin's Settings tab and stored at
   `/boot/optional/plugins/ai-template-maker/settings.json`.
 

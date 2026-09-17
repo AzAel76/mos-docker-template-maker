@@ -126,6 +126,58 @@
             />
           </v-expansion-panel-text>
         </v-expansion-panel>
+
+        <v-expansion-panel value="openai">
+          <v-expansion-panel-title>
+            OpenAI-compatible
+            <v-chip v-if="form.provider === 'openai'" size="x-small" color="primary" class="ml-2">Default</v-chip>
+          </v-expansion-panel-title>
+          <v-expansion-panel-text>
+            <v-alert type="info" variant="tonal" density="compact" class="mb-3">
+              Not limited to OpenAI's own cloud API - the base URL below can point at any server
+              speaking the same Chat Completions format (LM Studio, vLLM's OpenAI server,
+              text-generation-webui, LocalAI, llama.cpp server mode, etc.), the same way Ollama
+              above covers local models with its own API. Cost and reliability depend entirely on
+              what you point this at: OpenAI's cloud API is paid and generally reliable; a local
+              server is free and private but inherits the same speed/quality tradeoffs as Ollama.
+            </v-alert>
+            <div class="text-caption text-medium-emphasis mb-3">
+              <strong>Setup (OpenAI cloud):</strong> platform.openai.com → API keys → Create new
+              secret key → paste it below.
+              <strong>Setup (local server):</strong> point the base URL at it instead (e.g.
+              <code>http://localhost:1234/v1</code> for LM Studio) - the API key is usually not
+              required and can be left blank. Either way, test it, then pick a model.
+            </div>
+            <v-text-field
+              v-model="form.openai.base_url"
+              label="Base URL"
+              hint="e.g. https://api.openai.com/v1 or http://localhost:1234/v1"
+              persistent-hint
+              class="mb-2"
+            />
+            <v-text-field
+              v-model="form.openai.api_key"
+              label="API key (optional for most local servers)"
+              type="password"
+              class="mb-2"
+            />
+
+            <v-btn variant="tonal" size="small" class="mb-2" :loading="openaiTesting" :disabled="!form.openai.base_url" @click="testOpenai">
+              Test connection
+            </v-btn>
+            <v-alert v-if="openaiTestResult" :type="openaiTestResult.type" variant="tonal" density="compact" class="mb-3">
+              {{ openaiTestResult.message }}
+            </v-alert>
+
+            <v-combobox
+              v-model="form.openai.model"
+              :items="openaiModels"
+              label="Model"
+              :hint="openaiModels.length ? 'Available on that server - pick one, or type a different name.' : 'Test the connection to list what\'s available, or type a name directly.'"
+              persistent-hint
+            />
+          </v-expansion-panel-text>
+        </v-expansion-panel>
       </v-expansion-panels>
 
       <v-text-field
@@ -150,7 +202,8 @@ import { mosClient } from "../api/mosClient.js";
 const providerItems = [
   { title: "Anthropic (Claude) — paid, most reliable", value: "anthropic" },
   { title: "Google Gemini — free tier available", value: "gemini" },
-  { title: "Ollama — free, local, self-hosted", value: "ollama" }
+  { title: "Ollama — free, local, self-hosted", value: "ollama" },
+  { title: "OpenAI-compatible — cloud or self-hosted", value: "openai" }
 ];
 
 const form = reactive({
@@ -158,6 +211,7 @@ const form = reactive({
   anthropic: { api_key: "", model: "claude-sonnet-5" },
   gemini: { api_key: "", model: "gemini-2.5-flash" },
   ollama: { host: "http://localhost:11434", model: "qwen2.5-coder:7b" },
+  openai: { base_url: "https://api.openai.com/v1", api_key: "", model: "gpt-4o" },
   github_token: ""
 });
 const openPanel = ref("anthropic");
@@ -177,6 +231,10 @@ const geminiTesting = ref(false);
 const geminiTestResult = ref(null);
 const geminiModels = ref([]);
 
+const openaiTesting = ref(false);
+const openaiTestResult = ref(null);
+const openaiModels = ref([]);
+
 watch(
   () => form.provider,
   (p) => {
@@ -194,17 +252,22 @@ watch(() => form.anthropic.api_key, () => { anthropicModels.value = []; anthropi
 watch(() => form.anthropic.model, () => { anthropicTestResult.value = null; });
 watch(() => form.gemini.api_key, () => { geminiModels.value = []; geminiTestResult.value = null; });
 watch(() => form.gemini.model, () => { geminiTestResult.value = null; });
+watch(() => [form.openai.base_url, form.openai.api_key], () => { openaiModels.value = []; openaiTestResult.value = null; });
+watch(() => form.openai.model, () => { openaiTestResult.value = null; });
 
 // Trim before testing, not just before saving - otherwise a stray
 // leading/trailing space (easy via copy-paste) makes an exact-match check
 // silently fail even when the model/key is genuinely right. v-combobox
 // can also leave the model as null (cleared/no selection), unlike a plain
-// text field, hence the `|| ""` guards throughout.
-async function runTest({ testingRef, resultRef, modelsRef, testFn, connectValue, modelValue, notFoundNoun }) {
+// text field, hence the `|| ""` guards throughout. `call` is a thunk
+// (zero-arg function) rather than (fn, args) so each provider's test
+// call - two args for Ollama/Anthropic/Gemini, three for OpenAI's
+// base_url+key+model - can build its own call however it needs to.
+async function runTest({ testingRef, resultRef, modelsRef, call, modelValue, notFoundNoun }) {
   testingRef.value = true;
   resultRef.value = null;
   try {
-    const result = await testFn(connectValue, modelValue);
+    const result = await call();
     modelsRef.value = result.models;
     if (result.model_found === false) {
       resultRef.value = { type: "warning", message: `Connected, but "${modelValue}" isn't ${notFoundNoun}. Pick one below.` };
@@ -219,38 +282,50 @@ async function runTest({ testingRef, resultRef, modelsRef, testFn, connectValue,
 }
 
 function testOllama() {
+  const modelValue = (form.ollama.model || "").trim();
   return runTest({
     testingRef: ollamaTesting,
     resultRef: ollamaTestResult,
     modelsRef: ollamaModels,
-    testFn: (host, model) => mosClient.testOllamaConnection(host, model),
-    connectValue: form.ollama.host.trim(),
-    modelValue: (form.ollama.model || "").trim(),
+    call: () => mosClient.testOllamaConnection(form.ollama.host.trim(), modelValue),
+    modelValue,
     notFoundNoun: "pulled on that host yet"
   });
 }
 
 function testAnthropic() {
+  const modelValue = (form.anthropic.model || "").trim();
   return runTest({
     testingRef: anthropicTesting,
     resultRef: anthropicTestResult,
     modelsRef: anthropicModels,
-    testFn: (key, model) => mosClient.testAnthropicConnection(key, model),
-    connectValue: form.anthropic.api_key.trim(),
-    modelValue: (form.anthropic.model || "").trim(),
+    call: () => mosClient.testAnthropicConnection(form.anthropic.api_key.trim(), modelValue),
+    modelValue,
     notFoundNoun: "available to this key"
   });
 }
 
 function testGemini() {
+  const modelValue = (form.gemini.model || "").trim();
   return runTest({
     testingRef: geminiTesting,
     resultRef: geminiTestResult,
     modelsRef: geminiModels,
-    testFn: (key, model) => mosClient.testGeminiConnection(key, model),
-    connectValue: form.gemini.api_key.trim(),
-    modelValue: (form.gemini.model || "").trim(),
+    call: () => mosClient.testGeminiConnection(form.gemini.api_key.trim(), modelValue),
+    modelValue,
     notFoundNoun: "available to this key"
+  });
+}
+
+function testOpenai() {
+  const modelValue = (form.openai.model || "").trim();
+  return runTest({
+    testingRef: openaiTesting,
+    resultRef: openaiTestResult,
+    modelsRef: openaiModels,
+    call: () => mosClient.testOpenaiConnection(form.openai.base_url.trim(), form.openai.api_key.trim(), modelValue),
+    modelValue,
+    notFoundNoun: "available on that server"
   });
 }
 
@@ -258,7 +333,7 @@ onMounted(async () => {
   try {
     const settings = await mosClient.getSettings();
     if (settings.provider) form.provider = settings.provider;
-    for (const p of ["anthropic", "gemini", "ollama"]) {
+    for (const p of ["anthropic", "gemini", "ollama", "openai"]) {
       if (settings[p] && typeof settings[p] === "object") Object.assign(form[p], settings[p]);
     }
     if (settings.github_token) form.github_token = settings.github_token;
@@ -282,6 +357,11 @@ async function save() {
       anthropic: { api_key: form.anthropic.api_key.trim(), model: (form.anthropic.model || "").trim() },
       gemini: { api_key: form.gemini.api_key.trim(), model: (form.gemini.model || "").trim() },
       ollama: { host: form.ollama.host.trim(), model: (form.ollama.model || "").trim() },
+      openai: {
+        base_url: form.openai.base_url.trim(),
+        api_key: form.openai.api_key.trim(),
+        model: (form.openai.model || "").trim()
+      },
       github_token: form.github_token.trim()
     };
     await mosClient.saveSettings(payload);

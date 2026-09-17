@@ -65,14 +65,15 @@ esac
 # Settings: env vars win (used for standalone/manual testing), then
 # settings.json written by the plugin's Settings tab. Each provider keeps
 # its own config block (settings.json: {provider, anthropic:{...},
-# gemini:{...}, ollama:{...}, github_token}) so switching the default
-# provider doesn't clobber the other providers' saved keys.
+# gemini:{...}, ollama:{...}, openai:{...}, github_token}) so switching the
+# default provider doesn't clobber the other providers' saved keys.
 # ---------------------------------------------------------------------------
 provider="${MOS_TEMPLATE_MAKER_PROVIDER:-}"
-api_key="${ANTHROPIC_API_KEY:-${GEMINI_API_KEY:-}}"
+api_key="${ANTHROPIC_API_KEY:-${GEMINI_API_KEY:-${OPENAI_API_KEY:-}}}"
 model="${MOS_TEMPLATE_MAKER_MODEL:-}"
 github_token="${GITHUB_TOKEN:-}"
 ollama_host="${OLLAMA_HOST:-}"
+openai_base_url="${OPENAI_BASE_URL:-}"
 
 if [[ -f "$SETTINGS_FILE" ]]; then
   [[ -z "$provider" ]] && provider=$(jq -r '.provider // empty' "$SETTINGS_FILE" 2>/dev/null)
@@ -94,11 +95,17 @@ if [[ -f "$SETTINGS_FILE" ]]; then
       [[ -z "$model" ]] && model=$(jq -r '.ollama.model // empty' "$SETTINGS_FILE" 2>/dev/null)
       [[ -z "$ollama_host" ]] && ollama_host=$(jq -r '.ollama.host // empty' "$SETTINGS_FILE" 2>/dev/null)
       ;;
+    openai)
+      [[ -z "$api_key" ]] && api_key=$(jq -r '.openai.api_key // empty' "$SETTINGS_FILE" 2>/dev/null)
+      [[ -z "$model" ]] && model=$(jq -r '.openai.model // empty' "$SETTINGS_FILE" 2>/dev/null)
+      [[ -z "$openai_base_url" ]] && openai_base_url=$(jq -r '.openai.base_url // empty' "$SETTINGS_FILE" 2>/dev/null)
+      ;;
   esac
 fi
 
 model="$(trim "$model")"
 ollama_host="$(trim "$ollama_host")"
+openai_base_url="$(trim "$openai_base_url")"
 api_key="$(trim "$api_key")"
 github_token="$(trim "$github_token")"
 
@@ -106,10 +113,19 @@ case "$provider" in
   anthropic) model="${model:-claude-sonnet-5}" ;;
   gemini)    model="${model:-gemini-2.5-flash}" ;;
   ollama)    model="${model:-qwen2.5-coder:7b}"; ollama_host="${ollama_host:-http://localhost:11434}" ;;
-  *) fail "Unknown provider '${provider}' (expected anthropic, gemini, or ollama)" ;;
+  # "openai" covers the real OpenAI API and any local server speaking the
+  # same Chat Completions contract (LM Studio, vLLM's OpenAI server,
+  # text-generation-webui, LocalAI, llama.cpp server mode, etc.) - base_url
+  # is configurable rather than hardcoded for exactly that reason.
+  openai)    model="${model:-gpt-4o}"; openai_base_url="${openai_base_url:-https://api.openai.com/v1}" ;;
+  *) fail "Unknown provider '${provider}' (expected anthropic, gemini, ollama, or openai)" ;;
 esac
 
-if [[ "$provider" != "ollama" ]]; then
+# api_key isn't required for ollama (no concept of one) or openai (most
+# local OpenAI-compatible servers ignore it or accept any placeholder;
+# the real OpenAI API will just reject the request with a clear 401 if one
+# was actually needed and missing, same as it would for a wrong key).
+if [[ "$provider" != "ollama" && "$provider" != "openai" ]]; then
   [[ -n "$api_key" ]] || fail "No API key configured for ${provider}. Set it in the plugin's Settings tab."
 fi
 
@@ -541,10 +557,72 @@ call_ollama() {
   [[ -n "$raw_text" ]] || fail "Ollama returned no content: $(echo "$response" | jq -c '.error // .' 2>/dev/null)"
 }
 
+# OpenAI-compatible: the real OpenAI API, or any local server speaking the
+# same Chat Completions contract (see openai_base_url's default-assignment
+# comment above for the list). api_key is optional here - most local
+# servers ignore it or accept any placeholder.
+call_openai() {
+  local request_body response
+  local auth_header=()
+  [[ -n "$api_key" ]] && auth_header=(-H "Authorization: Bearer ${api_key}")
+
+  # Best-effort model resolution against what the server actually reports -
+  # unlike Ollama's hard-fail on a mismatch, this falls back to using the
+  # configured name verbatim on any hiccup, since "OpenAI-compatible" covers
+  # too wide a range of servers to trust every /models response equally.
+  # A genuinely wrong name still surfaces clearly via the real request's
+  # own error response below, same as it always would have.
+  local models_response models_exit
+  models_response=$(curl -sf --connect-timeout 5 --max-time 10 "${auth_header[@]}" "${openai_base_url%/}/models" 2>&1)
+  models_exit=$?
+  if [[ $models_exit -eq 0 ]]; then
+    local resolved
+    resolved=$(echo "$models_response" | jq -r --arg m "$model" '[.data[]? | .id] | map(select(. == $m)) | first // empty' 2>/dev/null)
+    [[ -n "$resolved" ]] && model="$resolved"
+  else
+    fail "Could not reach ${openai_base_url} (curl exit ${models_exit}${models_response:+: ${models_response}}) - is it running and reachable from the MOS host?"
+  fi
+
+  request_body=$(jq -n \
+    --arg model "$model" --argjson budget "$budget" \
+    --arg system "$system_prompt" --arg user "$user_content" \
+    '{
+      model: $model,
+      max_tokens: $budget,
+      response_format: {type: "json_object"},
+      messages: [{role:"system", content:$system}, {role:"user", content:$user}]
+    }')
+
+  # No -f here, same reasoning as Ollama's generation request: on an HTTP
+  # error the body is a {"error":{"message":"..."}} worth surfacing
+  # directly rather than discarding.
+  local http_status response_file
+  response_file=$(mktemp)
+  http_status=$(curl -s "${auth_header[@]}" -o "$response_file" -w '%{http_code}' \
+    -H "content-type: application/json" \
+    -d "$request_body" \
+    "${openai_base_url%/}/chat/completions")
+  local curl_rc=$?
+  response=$(cat "$response_file" 2>/dev/null)
+  rm -f "$response_file"
+
+  [[ $curl_rc -eq 0 ]] \
+    || fail "Generation request failed: could not reach ${openai_base_url} (curl exit ${curl_rc}) - passed the reachability/model check moments earlier, so this is likely the connection dropping mid-request."
+  if [[ "$http_status" != "200" ]]; then
+    local api_err
+    api_err=$(echo "$response" | jq -r '.error.message // empty' 2>/dev/null)
+    fail "OpenAI-compatible server returned HTTP ${http_status} for the generation request${api_err:+: ${api_err}}"
+  fi
+
+  raw_text=$(echo "$response" | jq -r '.choices[0].message.content // empty')
+  [[ -n "$raw_text" ]] || fail "OpenAI-compatible server returned no content: $(echo "$response" | jq -c '.error // .' 2>/dev/null)"
+}
+
 case "$provider" in
   anthropic) call_anthropic ;;
   gemini)    call_gemini ;;
   ollama)    call_ollama ;;
+  openai)    call_openai ;;
 esac
 
 # Strip stray markdown fences if the model added them despite instructions.

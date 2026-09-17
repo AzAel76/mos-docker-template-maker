@@ -69,7 +69,7 @@ const loading = ref(true);
 const clearing = ref(false);
 const error = ref("");
 
-const PROVIDER_NAMES = { anthropic: "Anthropic", gemini: "Gemini", ollama: "Ollama" };
+const PROVIDER_NAMES = { anthropic: "Anthropic", gemini: "Gemini", ollama: "Ollama", openai: "OpenAI" };
 
 function providerModelLabel(entry) {
   const name = PROVIDER_NAMES[entry.provider] || entry.provider;

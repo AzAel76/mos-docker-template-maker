@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Invoked via MOS's synchronous plugin query endpoint:
+#   POST /mos/plugins/query {command:"ai-template-maker-test-openai", args:[baseUrl, apiKey, model], parse_json:true}
+# apiKey and model are optional (empty string if not supplied) - apiKey
+# especially so, since most local OpenAI-compatible servers (LM Studio,
+# vLLM's OpenAI server, text-generation-webui, LocalAI, llama.cpp server
+# mode) ignore it or accept any placeholder. Verifies the server is
+# reachable and lists available models via GET <baseUrl>/models - used by
+# the Settings tab's "Test connection" button for the OpenAI-compatible
+# panel, mirroring ai-template-maker-test-ollama/-anthropic/-gemini.
+#
+# Prints {"ok":true, "models":[...], "model_found":true|false|null} on
+# success (model_found is null when no model arg was given), or
+# {"ok":false, "error":"..."} on failure. Always exits 0.
+set -uo pipefail
+
+fail() {
+  jq -n --arg msg "$1" '{ok:false, error:$msg}'
+  exit 0
+}
+
+# See ai-template-maker-analyze's identical helper - guards against a
+# stray leading/trailing space (easy via copy-paste) breaking the base
+# URL, API key, or an exact model-name match.
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+command -v jq >/dev/null 2>&1 || fail "jq is required on the MOS host"
+command -v curl >/dev/null 2>&1 || fail "curl is required on the MOS host"
+
+base_url="$(trim "${1:-}")"
+[[ -n "$base_url" ]] || fail "A base URL is required"
+api_key="$(trim "${2:-}")"
+model="$(trim "${3:-}")"
+
+auth_header=()
+[[ -n "$api_key" ]] && auth_header=(-H "Authorization: Bearer ${api_key}")
+
+response_file=$(mktemp)
+http_status=$(curl -s --connect-timeout 5 --max-time 10 "${auth_header[@]}" -o "$response_file" -w '%{http_code}' "${base_url%/}/models")
+curl_rc=$?
+response=$(cat "$response_file" 2>/dev/null)
+rm -f "$response_file"
+
+[[ $curl_rc -eq 0 ]] || fail "Could not reach ${base_url} (curl exit ${curl_rc}) - is it running and reachable from the MOS host?"
+
+if [[ "$http_status" != "200" ]]; then
+  api_err=$(echo "$response" | jq -r '.error.message // empty' 2>/dev/null)
+  if [[ "$http_status" == "401" || "$http_status" == "403" ]]; then
+    fail "Server rejected this request (HTTP ${http_status})${api_err:+: ${api_err}} - check the API key, if this server requires one"
+  fi
+  fail "Server returned HTTP ${http_status}${api_err:+: ${api_err}}"
+fi
+
+echo "$response" | jq empty 2>/dev/null || fail "Server responded, but not with valid JSON - is ${base_url} actually an OpenAI-compatible endpoint?"
+
+models_json=$(echo "$response" | jq -c '[.data[]? | .id] | unique')
+
+if [[ -n "$model" ]]; then
+  model_found=$(echo "$response" | jq --arg m "$model" '[.data[]? | .id] | any(. == $m)')
+else
+  model_found="null"
+fi
+
+jq -n --argjson models "$models_json" --argjson found "$model_found" '{ok:true, models:$models, model_found:$found}'

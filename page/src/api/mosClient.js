@@ -196,6 +196,13 @@ export const mosClient = {
   testGeminiConnection(apiKey, model) {
     return this._testProviderConnection("ai-template-maker-test-gemini", model ? [apiKey, model] : [apiKey]);
   },
+  testOpenaiConnection(baseUrl, apiKey, model) {
+    // apiKey/model are positional and optional (most local OpenAI-
+    // compatible servers ignore the key), so empty strings are passed
+    // explicitly rather than omitted - omitting a middle argument would
+    // shift what the later one means.
+    return this._testProviderConnection("ai-template-maker-test-openai", [baseUrl, apiKey || "", model || ""]);
+  },
   createStack({ name, yaml, env, icon, webui, autostart = false, no_autoupdate = false }) {
     return request("/docker/mos/compose/stacks", {
       method: "POST",
