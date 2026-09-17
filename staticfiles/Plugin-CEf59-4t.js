@@ -221,6 +221,14 @@ var mosClient = {
 			body: template
 		});
 	},
+	async getUsedPorts() {
+		try {
+			const ports = await request("/docker/mos/ports");
+			return Array.isArray(ports) ? ports : [];
+		} catch {
+			return [];
+		}
+	},
 	createStack({ name, yaml, env, icon, webui, autostart = false, no_autoupdate = false }) {
 		return request("/docker/mos/compose/stacks", {
 			method: "POST",
@@ -269,11 +277,15 @@ var _plugin_vue_export_helper_default = (sfc, props) => {
 };
 //#endregion
 //#region src/components/InstallDialog.vue
-var { resolveComponent: _resolveComponent$4, openBlock: _openBlock$4, createBlock: _createBlock$4, createCommentVNode: _createCommentVNode$3, withCtx: _withCtx$4, createVNode: _createVNode$4, toDisplayString: _toDisplayString$3, createElementVNode: _createElementVNode$4, createTextVNode: _createTextVNode$4, Fragment: _Fragment$2, createElementBlock: _createElementBlock$2 } = await importShared("vue");
+var { resolveComponent: _resolveComponent$4, openBlock: _openBlock$4, createBlock: _createBlock$4, createCommentVNode: _createCommentVNode$3, withCtx: _withCtx$4, createVNode: _createVNode$4, toDisplayString: _toDisplayString$3, createElementVNode: _createElementVNode$4, createTextVNode: _createTextVNode$4, createElementBlock: _createElementBlock$2, Fragment: _Fragment$2 } = await importShared("vue");
 var _hoisted_1$2 = { class: "text-h6" };
 var _hoisted_2$2 = { class: "text-caption text-medium-emphasis" };
-var _hoisted_3$1 = { class: "mb-4" };
+var _hoisted_3$1 = {
+	key: 0,
+	class: "text-caption text-warning mt-1"
+};
 var _hoisted_4 = { class: "mb-4" };
+var _hoisted_5 = { class: "mb-4" };
 var { computed: computed$1, ref: ref$4, watch: watch$1 } = await importShared("vue");
 var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 	__name: "InstallDialog",
@@ -300,6 +312,7 @@ var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 		const installing = ref$4(false);
 		const installError = ref$4("");
 		const installedOk = ref$4(false);
+		const usedPorts = ref$4([]);
 		watch$1(() => props.result, (result) => {
 			installError.value = "";
 			installedOk.value = false;
@@ -320,12 +333,20 @@ var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 				local.value.post_parameters ??= "";
 				local.value.privileged ??= false;
 				local.value.no_autoupdate ??= false;
+				mosClient.getUsedPorts().then((ports) => {
+					usedPorts.value = ports;
+				});
 			} else {
 				local.value.template ??= {};
 				local.value.env ??= "";
 				local.value.no_autoupdate ??= false;
 			}
 		}, { immediate: true });
+		function portConflict(row) {
+			if (!row.host) return null;
+			const proto = (row.protocol || "tcp").toLowerCase();
+			return usedPorts.value.find((p) => String(p.port) === String(row.host) && (p.proto || "tcp").toLowerCase() === proto) || null;
+		}
 		const displayName = computed$1(() => (mode.value === "compose" ? local.value?.name : local.value?.name) || "");
 		const icon = computed$1({
 			get: () => (mode.value === "compose" ? local.value?.template?.icon : local.value?.icon) || "",
@@ -643,12 +664,19 @@ var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 														modelValue: row.host,
 														"onUpdate:modelValue": ($event) => row.host = $event,
 														density: "compact",
+														"hide-details": "",
 														error: !!row.host && !/^[0-9.-]+$/.test(row.host)
 													}, null, 8, [
 														"modelValue",
 														"onUpdate:modelValue",
 														"error"
-													])]),
+													]), portConflict(row) ? (_openBlock$4(), _createElementBlock$2("div", _hoisted_3$1, [_createVNode$4(_component_v_icon, {
+														size: "14",
+														class: "mr-1"
+													}, {
+														default: _withCtx$4(() => [..._cache[25] || (_cache[25] = [_createTextVNode$4("mdi-alert", -1)])]),
+														_: 1
+													}), _createTextVNode$4(" Already used by \"" + _toDisplayString$3(portConflict(row).name || "another container") + "\" (" + _toDisplayString$3(portConflict(row).status) + ") ", 1)])) : _createCommentVNode$3("", true)]),
 													_: 2
 												}, 1024), _createVNode$4(_component_v_col, { cols: "6" }, {
 													default: _withCtx$4(() => [_createVNode$4(_component_v_text_field, {
@@ -904,11 +932,11 @@ var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 										label: "Stack name",
 										class: "mb-4"
 									}, null, 8, ["modelValue"]),
-									_createElementVNode$4("div", _hoisted_3$1, [_createVNode$4(_component_v_label, {
+									_createElementVNode$4("div", _hoisted_4, [_createVNode$4(_component_v_label, {
 										class: "text-body-2",
 										style: { "display": "block" }
 									}, {
-										default: _withCtx$4(() => [..._cache[25] || (_cache[25] = [_createTextVNode$4("Compose yaml", -1)])]),
+										default: _withCtx$4(() => [..._cache[26] || (_cache[26] = [_createTextVNode$4("Compose yaml", -1)])]),
 										_: 1
 									}), _createVNode$4(_component_v_textarea, {
 										modelValue: local.value.yaml,
@@ -918,11 +946,11 @@ var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 										variant: "outlined",
 										"hide-details": ""
 									}, null, 8, ["modelValue"])]),
-									_createElementVNode$4("div", _hoisted_4, [_createVNode$4(_component_v_label, {
+									_createElementVNode$4("div", _hoisted_5, [_createVNode$4(_component_v_label, {
 										class: "text-body-2",
 										style: { "display": "block" }
 									}, {
-										default: _withCtx$4(() => [..._cache[26] || (_cache[26] = [_createTextVNode$4("Environment variables", -1)])]),
+										default: _withCtx$4(() => [..._cache[27] || (_cache[27] = [_createTextVNode$4("Environment variables", -1)])]),
 										_: 1
 									}), _createVNode$4(_component_v_textarea, {
 										modelValue: local.value.env,
@@ -964,7 +992,7 @@ var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 									variant: "text",
 									onClick: close
 								}, {
-									default: _withCtx$4(() => [..._cache[27] || (_cache[27] = [_createTextVNode$4("Cancel", -1)])]),
+									default: _withCtx$4(() => [..._cache[28] || (_cache[28] = [_createTextVNode$4("Cancel", -1)])]),
 									_: 1
 								}),
 								_createVNode$4(_component_v_spacer),
@@ -973,7 +1001,7 @@ var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 									loading: installing.value,
 									onClick: install
 								}, {
-									default: _withCtx$4(() => [..._cache[28] || (_cache[28] = [_createTextVNode$4("Install", -1)])]),
+									default: _withCtx$4(() => [..._cache[29] || (_cache[29] = [_createTextVNode$4("Install", -1)])]),
 									_: 1
 								}, 8, ["loading"])
 							]),
@@ -986,7 +1014,7 @@ var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 			}, 8, ["modelValue"]);
 		};
 	}
-}, [["__scopeId", "data-v-1bbd6d4b"]]);
+}, [["__scopeId", "data-v-69a88425"]]);
 //#endregion
 //#region src/components/AnalyzeForm.vue
 var { createElementVNode: _createElementVNode$3, toDisplayString: _toDisplayString$2, createTextVNode: _createTextVNode$3, resolveComponent: _resolveComponent$3, withCtx: _withCtx$3, openBlock: _openBlock$3, createBlock: _createBlock$3, createCommentVNode: _createCommentVNode$2, withKeys: _withKeys, createVNode: _createVNode$3, Fragment: _Fragment$1, createElementBlock: _createElementBlock$1 } = await importShared("vue");
