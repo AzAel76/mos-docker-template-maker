@@ -38,6 +38,12 @@
           <v-text-field label="Custom IP" v-model="local.custom_ip" class="mb-2" />
           <v-text-field label="Default shell" v-model="local.default_shell" class="mb-2" />
           <v-switch label="Privileged" v-model="local.privileged" inset color="green" density="compact" hide-details="auto" />
+          <v-alert v-if="local.privileged" type="error" variant="tonal" density="compact" class="mb-2">
+            <v-icon size="14" class="mr-1">mdi-shield-alert</v-icon>
+            Privileged mode gives this container full access to the host - effectively no isolation.
+            Only leave this on if the app genuinely needs it (check the project's docs); turn it off
+            if you're not sure.
+          </v-alert>
           <v-switch label="No autoupdate" v-model="local.no_autoupdate" inset color="green" density="compact" hide-details="auto" class="mb-2" />
           <v-text-field label="Extra parameters" v-model="local.extra_parameters" class="mb-2" />
           <v-text-field label="Post parameters" v-model="local.post_parameters" class="mb-2" />
@@ -150,6 +156,12 @@
              as a new dependency just for syntax highlighting. ===== -->
         <template v-else>
           <v-text-field v-model="local.name" label="Stack name" class="mb-4" />
+          <v-alert v-if="composePortConflicts.length" type="warning" variant="tonal" density="compact" class="mb-2">
+            <div v-for="c in composePortConflicts" :key="c.port">
+              <v-icon size="14" class="mr-1">mdi-alert</v-icon>
+              Port {{ c.port }} is already used by "{{ c.name || "another container" }}" ({{ c.status }})
+            </div>
+          </v-alert>
           <div class="mb-4">
             <v-label class="text-body-2" style="display: block">Compose yaml</v-label>
             <v-textarea v-model="local.yaml" rows="12" class="font-mono" variant="outlined" hide-details />
@@ -220,16 +232,18 @@ watch(
       local.value.post_parameters ??= "";
       local.value.privileged ??= false;
       local.value.no_autoupdate ??= false;
-      // Best-effort - same panel data as the native dialog's "Inspect"
-      // link, just used here to flag a collision instead of just listing.
-      mosClient.getUsedPorts().then((ports) => {
-        usedPorts.value = ports;
-      });
     } else {
       local.value.template ??= {};
       local.value.env ??= "";
       local.value.no_autoupdate ??= false;
     }
+    // Best-effort - same panel data as the native dialog's "Inspect" link,
+    // just used here to flag a collision instead of just listing. Needed
+    // for both modes: docker's structured ports array (portConflict below)
+    // and compose's regex-scanned yaml (composePortConflicts below).
+    mosClient.getUsedPorts().then((ports) => {
+      usedPorts.value = ports;
+    });
   },
   { immediate: true }
 );
@@ -239,6 +253,28 @@ function portConflict(row) {
   const proto = (row.protocol || "tcp").toLowerCase();
   return usedPorts.value.find((p) => String(p.port) === String(row.host) && (p.proto || "tcp").toLowerCase() === proto) || null;
 }
+
+// Compose ports live in raw yaml text, not a structured array, so this is
+// a regex scan rather than a real parse - it only recognizes the plain
+// "- HOST:CONTAINER" (optionally quoted, optionally "/proto") short-form
+// list-item syntax, which is exactly the form the analyze script's system
+// prompt and schema example both use. Good enough for what this tool
+// itself generates; won't catch every valid compose ports form (mapping
+// syntax, long form with target/published keys) if the yaml was hand-
+// edited into one of those.
+const composePortConflicts = computed(() => {
+  if (mode.value !== "compose" || !local.value?.yaml) return [];
+  const hostPorts = [...local.value.yaml.matchAll(/^\s*-\s*["']?(\d{1,5}):\d{1,5}(?:\/\w+)?["']?\s*$/gm)].map((m) => m[1]);
+  const seen = new Set();
+  const conflicts = [];
+  for (const port of hostPorts) {
+    if (seen.has(port)) continue;
+    seen.add(port);
+    const hit = usedPorts.value.find((p) => String(p.port) === port);
+    if (hit) conflicts.push({ port, name: hit.name, status: hit.status });
+  }
+  return conflicts;
+});
 
 const displayName = computed(() => (mode.value === "compose" ? local.value?.name : local.value?.name) || "");
 const icon = computed({

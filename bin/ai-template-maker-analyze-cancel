@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Invoked via MOS's synchronous plugin query endpoint:
+#   POST /mos/plugins/query {command:"ai-template-maker-analyze-cancel", args:[jobId], parse_json:true}
+#
+# Actually kills the background job started by ai-template-maker-analyze-
+# start, rather than just letting the frontend stop watching it - which by
+# itself leaves the process running and consuming CPU/memory on the MOS
+# host until it finishes on its own. That matters most for a many-minutes
+# Ollama run someone has decided to actively stop, not just stop looking
+# at.
+#
+# Prints {"ok":true, "cancelled":true|false} on success (false means the
+# job had already finished by the time this ran - not an error), or
+# {"ok":false, "error":"..."} on a malformed request. Always exits 0.
+#
+# Must live at /usr/bin/plugins/ai-template-maker-analyze-cancel on the
+# MOS host, alongside ai-template-maker-analyze-start.
+set -uo pipefail
+
+PLUGIN_NAME="ai-template-maker"
+JOBS_DIR="/boot/optional/plugins/${PLUGIN_NAME}/jobs"
+
+fail() {
+  jq -n --arg msg "$1" '{ok:false, error:$msg}'
+  exit 0
+}
+
+command -v jq >/dev/null 2>&1 || fail "jq is required on the MOS host"
+
+job_id="${1:-}"
+[[ -n "$job_id" ]] || fail "A job id is required"
+# Same guard as ai-template-maker-analyze-status - job_id is always our own
+# "<digits>_<digits>", reject anything else before it gets anywhere near a
+# path or a kill target.
+[[ "$job_id" =~ ^[0-9]+_[0-9]+$ ]] || fail "Invalid job id"
+
+job_dir="${JOBS_DIR}/${job_id}"
+[[ -d "$job_dir" ]] || fail "Unknown or expired job"
+
+pid=$(cat "$job_dir/pid" 2>/dev/null)
+if [[ -z "$pid" ]] || ! [[ "$pid" =~ ^[0-9]+$ ]]; then
+  jq -n '{ok:true, cancelled:false, note:"No process recorded for this job - it may have already finished."}'
+  exit 0
+fi
+
+if kill -0 "$pid" 2>/dev/null; then
+  # Write "cancelled" before signaling, not after - see the matching
+  # comment in ai-template-maker-analyze-start for why the ordering here
+  # specifically guards against a finish-vs-kill race.
+  echo "cancelled" > "$job_dir/status"
+  # $pid is also the job's own process group id (ai-template-maker-
+  # analyze-start launches it via setsid) - the leading "-" targets the
+  # whole group, so curl or anything else it spawned gets killed too
+  # instead of being left running as an orphan.
+  kill -TERM -- "-${pid}" 2>/dev/null
+  sleep 1
+  kill -KILL -- "-${pid}" 2>/dev/null
+  jq -n '{ok:true, cancelled:true}'
+else
+  jq -n '{ok:true, cancelled:false, note:"Process had already finished."}'
+fi

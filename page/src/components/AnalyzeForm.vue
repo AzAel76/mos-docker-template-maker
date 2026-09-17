@@ -46,26 +46,18 @@
       </v-btn>
     </v-card-actions>
   </v-card>
-
-  <InstallDialog v-model="dialogOpen" :result="result" @installed="onInstalled" />
-
-  <v-snackbar v-model="showInstalledSnackbar" color="success" timeout="4000">
-    Installed — check the Docker overview.
-  </v-snackbar>
 </template>
 
 <script setup>
 import { ref, computed } from "vue";
-import InstallDialog from "./InstallDialog.vue";
 import { mosClient } from "../api/mosClient.js";
+
+const emit = defineEmits(["open-result"]);
 
 const repoUrl = ref("");
 const scope = ref("required");
 const analyzing = ref(false);
 const error = ref("");
-const result = ref(null);
-const dialogOpen = ref(false);
-const showInstalledSnackbar = ref(false);
 const elapsedSeconds = ref(0);
 const currentProvider = ref("");
 
@@ -89,12 +81,14 @@ const analyzingHint = computed(() =>
 );
 
 let controller = null;
+let currentJobId = null;
 
 async function analyze() {
   analyzing.value = true;
   error.value = "";
   elapsedSeconds.value = 0;
   currentProvider.value = "";
+  currentJobId = null;
   controller = new AbortController();
   const startedAt = Date.now();
   try {
@@ -116,10 +110,12 @@ async function analyze() {
       signal: controller.signal,
       onTick: () => {
         elapsedSeconds.value = Math.round((Date.now() - startedAt) / 1000);
+      },
+      onJobStarted: (jobId) => {
+        currentJobId = jobId;
       }
     });
-    result.value = data;
-    dialogOpen.value = true;
+    emit("open-result", data);
   } catch (e) {
     if (e.name !== "AbortError") error.value = e.message;
   } finally {
@@ -129,11 +125,13 @@ async function analyze() {
 }
 
 function cancel() {
+  // Stop the frontend from watching immediately (AbortError short-
+  // circuits analyzeRepo's poll loop on the next check), and separately
+  // ask the backend to actually kill the job - the two are independent:
+  // stopping without killing would leave it running on the MOS host until
+  // it finishes on its own, which defeats the point of a Cancel button
+  // for a many-minutes Ollama run someone wants to actually stop.
   controller?.abort();
-}
-
-function onInstalled() {
-  dialogOpen.value = false;
-  showInstalledSnackbar.value = true;
+  if (currentJobId) mosClient.cancelAnalysis(currentJobId);
 }
 </script>

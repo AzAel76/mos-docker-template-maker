@@ -12,16 +12,24 @@
     </v-tabs>
     <v-window v-model="tab">
       <v-window-item value="analyze">
-        <AnalyzeForm />
+        <AnalyzeForm @open-result="openResult" />
       </v-window-item>
       <v-window-item value="history">
-        <HistoryList />
+        <HistoryList @open-result="openResult" />
       </v-window-item>
       <v-window-item value="settings">
         <SettingsForm />
       </v-window-item>
     </v-window>
   </v-sheet>
+
+  <!-- Owned here, not by Analyze/History individually, so either tab can
+       open the same dialog: History reopens a past result in it too. -->
+  <InstallDialog v-model="dialogOpen" :result="dialogResult" @installed="onInstalled" />
+
+  <v-snackbar v-model="showInstalledSnackbar" color="success" timeout="4000">
+    Installed — check the Docker overview.
+  </v-snackbar>
 </template>
 
 <script setup>
@@ -29,6 +37,20 @@ import { ref } from "vue";
 import AnalyzeForm from "./components/AnalyzeForm.vue";
 import HistoryList from "./components/HistoryList.vue";
 import SettingsForm from "./components/SettingsForm.vue";
+import InstallDialog from "./components/InstallDialog.vue";
 
 const tab = ref("analyze");
+const dialogOpen = ref(false);
+const dialogResult = ref(null);
+const showInstalledSnackbar = ref(false);
+
+function openResult(result) {
+  dialogResult.value = result;
+  dialogOpen.value = true;
+}
+
+function onInstalled() {
+  dialogOpen.value = false;
+  showInstalledSnackbar.value = true;
+}
 </script>

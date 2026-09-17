@@ -23,10 +23,20 @@
           <v-list-item-subtitle>
             <v-chip size="x-small" variant="tonal" class="mr-1">{{ entry.mode === "compose" ? "Compose" : "Docker" }}</v-chip>
             <v-chip size="x-small" variant="tonal" class="mr-1">{{ entry.scope === "all" ? "All settings" : "Required only" }}</v-chip>
+            <v-chip v-if="entry.provider" size="x-small" variant="tonal" class="mr-1">{{ providerModelLabel(entry) }}</v-chip>
             <span class="text-caption">{{ formatDate(entry.analyzed_at) }}</span>
           </v-list-item-subtitle>
 
           <template #append>
+            <v-btn
+              v-if="entry.result"
+              icon="mdi-eye-outline"
+              size="small"
+              variant="text"
+              title="View result"
+              aria-label="View this analysis result"
+              @click="$emit('open-result', entry.result)"
+            />
             <v-btn
               icon="mdi-open-in-new"
               size="small"
@@ -52,10 +62,19 @@
 import { ref, onMounted } from "vue";
 import { mosClient } from "../api/mosClient.js";
 
+defineEmits(["open-result"]);
+
 const entries = ref([]);
 const loading = ref(true);
 const clearing = ref(false);
 const error = ref("");
+
+const PROVIDER_NAMES = { anthropic: "Anthropic", gemini: "Gemini", ollama: "Ollama" };
+
+function providerModelLabel(entry) {
+  const name = PROVIDER_NAMES[entry.provider] || entry.provider;
+  return entry.model ? `${name} · ${entry.model}` : name;
+}
 
 function formatDate(iso) {
   if (!iso) return "";

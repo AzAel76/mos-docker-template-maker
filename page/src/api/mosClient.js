@@ -57,7 +57,7 @@ export const mosClient = {
   saveSettings(settings) {
     return request(`/mos/plugins/settings/${PLUGIN_NAME}`, { method: "POST", body: settings });
   },
-  async analyzeRepo(repoUrl, { scope = "required", pollIntervalMs = 2500, maxWaitMs = 10 * 60 * 1000, signal, onTick } = {}) {
+  async analyzeRepo(repoUrl, { scope = "required", pollIntervalMs = 2500, maxWaitMs = 60 * 60 * 1000, signal, onTick, onJobStarted } = {}) {
     // Analysis can comfortably exceed MOS's 60s synchronous query ceiling
     // (seen in practice on Ollama with a modest model/no GPU), and that
     // ceiling isn't adjustable - so this doesn't call the analyze script
@@ -81,6 +81,7 @@ export const mosClient = {
     if (!jobId) {
       throw new Error("Could not start analysis (no job id returned)");
     }
+    onJobStarted?.(jobId);
 
     const deadline = Date.now() + maxWaitMs;
     for (;;) {
@@ -89,8 +90,8 @@ export const mosClient = {
       }
       if (Date.now() > deadline) {
         throw new Error(
-          `Still running after ${Math.round(maxWaitMs / 60000)} minutes - it may finish in the background ` +
-            "on a slow local model; check the History tab shortly, or try again with a faster provider."
+          `Still running after ${Math.round(maxWaitMs / 60000)} minutes - it's still running in the ` +
+            "background on the MOS host; check the History tab later, or use Cancel to actually stop it."
         );
       }
       await sleep(pollIntervalMs);
@@ -110,6 +111,9 @@ export const mosClient = {
       if (out?.status === "running") {
         continue;
       }
+      if (out?.status === "cancelled") {
+        throw new DOMException("Analysis cancelled", "AbortError");
+      }
       if (out?.status === "error") {
         throw new Error(out.error || "Analysis failed");
       }
@@ -124,6 +128,22 @@ export const mosClient = {
         return result;
       }
       throw new Error("Unexpected response while checking analysis status");
+    }
+  },
+  async cancelAnalysis(jobId) {
+    // Best-effort: if this fails, the frontend has already stopped
+    // watching the job either way (see analyzeRepo's AbortError path) - a
+    // failure here just means the background process keeps running until
+    // it finishes on its own, not that the user's Cancel click did nothing
+    // visible.
+    try {
+      const res = await request("/mos/plugins/query", {
+        method: "POST",
+        body: { command: "ai-template-maker-analyze-cancel", args: [jobId], timeout: 15, parse_json: true }
+      });
+      return !!(res.success && res.output?.ok);
+    } catch {
+      return false;
     }
   },
   createContainer(template) {
@@ -144,19 +164,17 @@ export const mosClient = {
       return [];
     }
   },
-  async testOllamaConnection(host, model) {
-    // Tests whatever's currently typed in the Settings form, not what's
-    // saved - so a bad host/model can be caught while configuring,
-    // before ever running a real (potentially multi-minute) analysis
-    // against it. Returns {ok, models, model_found} on success.
+  // Shared by all three test*Connection methods below - each just picks the
+  // command and positional args for its own ai-template-maker-test-<provider>
+  // script, all of which share the same {ok, models, model_found} /
+  // {ok:false, error} response shape. Tests whatever's currently typed in
+  // the Settings form, not what's saved - so a bad key/host/model can be
+  // caught while configuring, before ever running a real (potentially
+  // multi-minute) analysis against it.
+  async _testProviderConnection(command, args) {
     const res = await request("/mos/plugins/query", {
       method: "POST",
-      body: {
-        command: "ai-template-maker-test-ollama",
-        args: model ? [host, model] : [host],
-        timeout: 15,
-        parse_json: true
-      }
+      body: { command, args, timeout: 15, parse_json: true }
     });
     if (!res.success) {
       throw new Error(typeof res.output === "string" ? res.output : `Could not test connection (exit ${res.exit_code})`);
@@ -168,6 +186,15 @@ export const mosClient = {
       throw new Error(res.output.error || "Connection test failed");
     }
     return res.output;
+  },
+  testOllamaConnection(host, model) {
+    return this._testProviderConnection("ai-template-maker-test-ollama", model ? [host, model] : [host]);
+  },
+  testAnthropicConnection(apiKey, model) {
+    return this._testProviderConnection("ai-template-maker-test-anthropic", model ? [apiKey, model] : [apiKey]);
+  },
+  testGeminiConnection(apiKey, model) {
+    return this._testProviderConnection("ai-template-maker-test-gemini", model ? [apiKey, model] : [apiKey]);
   },
   createStack({ name, yaml, env, icon, webui, autostart = false, no_autoupdate = false }) {
     return request("/docker/mos/compose/stacks", {

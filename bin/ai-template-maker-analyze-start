@@ -35,30 +35,51 @@ scope="${2:-required}"
 
 mkdir -p "$JOBS_DIR" 2>/dev/null || fail "Could not create the plugin's jobs directory"
 
-# Prune job directories older than an hour so this never grows unbounded -
-# every real analysis (even a slow local model) finishes in minutes, not an
-# hour, and ai-template-maker-analyze-status treats a missing job dir as
-# "unknown job" rather than erroring, so this is safe to do on every start.
-find "$JOBS_DIR" -mindepth 1 -maxdepth 1 -type d -mmin +60 -exec rm -rf {} + 2>/dev/null
+# Prune job directories older than 6 hours so this never grows unbounded.
+# This used to be 60 minutes, back when the frontend gave up watching after
+# 10 - but a legitimate slow-hardware Ollama run can now take up to an hour
+# (see mosClient.analyzeRepo's maxWaitMs) with no intermediate writes to its
+# own job dir in between, so a 60-minute prune could have deleted a job's
+# directory out from under it mid-run if a second analysis happened to
+# start while the first was still going. 6 hours gives generous headroom
+# above the longest a client will ever wait, while still eventually
+# cleaning up dirs that were genuinely abandoned. Missing dirs are handled
+# gracefully anyway - ai-template-maker-analyze-status treats one as
+# "unknown job" rather than erroring.
+find "$JOBS_DIR" -mindepth 1 -maxdepth 1 -type d -mmin +360 -exec rm -rf {} + 2>/dev/null
 
 job_id="$(date +%s%N)_$$"
 job_dir="${JOBS_DIR}/${job_id}"
 mkdir -p "$job_dir" || fail "Could not create job directory"
 echo "running" > "$job_dir/status"
 
-# Detach fully from this script's own stdin/stdout/stderr before
-# backgrounding: MOS's query executor (Node's child_process.exec) only
+# setsid gives the job its own process group (PGID == its own PID), and
+# that PID is recorded so ai-template-maker-analyze-cancel can later kill
+# the *whole* group (the analyze script plus whatever curl/etc. it has
+# spawned) with one `kill -- -PID`, not just the top-level process leaving
+# orphaned children behind. Detaching stdin/stdout/stderr from /dev/null
+# and files (rather than inheriting this script's) is still required
+# regardless: MOS's query executor (Node's child_process.exec) only
 # considers this command finished once those file descriptors reach EOF,
-# which won't happen while a backgrounded child still holds a copy of
-# them open - even after this script's own foreground part has exited.
-(
-  if "$ANALYZE_BIN" "$repo_url" "$scope" > "$job_dir/result.json.tmp" 2>"$job_dir/error.log"; then
-    mv "$job_dir/result.json.tmp" "$job_dir/result.json"
-    echo "done" > "$job_dir/status"
+# which won't happen while a backgrounded child still holds a copy open -
+# even after this script's own foreground part has exited.
+setsid bash -c '
+  # ai-template-maker-analyze-cancel writes "cancelled" to the status file
+  # *before* signaling this process, specifically so that a narrow race -
+  # the job finishing (successfully or not) in the instant between that
+  # write and the kill signal actually landing - cannot clobber it back to
+  # "done"/"error" once the caller has already been told it was cancelled.
+  if "$1" "$2" "$3" > "$4/result.json.tmp" 2>"$4/error.log"; then
+    if [[ "$(cat "$4/status" 2>/dev/null)" != "cancelled" ]]; then
+      mv "$4/result.json.tmp" "$4/result.json"
+      echo "done" > "$4/status"
+    fi
   else
-    echo "error" > "$job_dir/status"
+    [[ "$(cat "$4/status" 2>/dev/null)" == "cancelled" ]] || echo "error" > "$4/status"
   fi
-) < /dev/null > /dev/null 2>&1 &
+' _ "$ANALYZE_BIN" "$repo_url" "$scope" "$job_dir" < /dev/null > /dev/null 2>&1 &
+job_pid=$!
 disown
+echo "$job_pid" > "$job_dir/pid"
 
 jq -n --arg id "$job_id" '{job_id: $id}'

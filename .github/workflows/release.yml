@@ -82,8 +82,17 @@ jobs:
           cp bin/ai-template-maker-analyze-status "deb-build/usr/bin/plugins/${PLUGIN_NAME}-analyze-status"
           chmod 755 "deb-build/usr/bin/plugins/${PLUGIN_NAME}-analyze-status"
 
+          cp bin/ai-template-maker-analyze-cancel "deb-build/usr/bin/plugins/${PLUGIN_NAME}-analyze-cancel"
+          chmod 755 "deb-build/usr/bin/plugins/${PLUGIN_NAME}-analyze-cancel"
+
           cp bin/ai-template-maker-test-ollama "deb-build/usr/bin/plugins/${PLUGIN_NAME}-test-ollama"
           chmod 755 "deb-build/usr/bin/plugins/${PLUGIN_NAME}-test-ollama"
+
+          cp bin/ai-template-maker-test-anthropic "deb-build/usr/bin/plugins/${PLUGIN_NAME}-test-anthropic"
+          chmod 755 "deb-build/usr/bin/plugins/${PLUGIN_NAME}-test-anthropic"
+
+          cp bin/ai-template-maker-test-gemini "deb-build/usr/bin/plugins/${PLUGIN_NAME}-test-gemini"
+          chmod 755 "deb-build/usr/bin/plugins/${PLUGIN_NAME}-test-gemini"
 
           cp -r staticfiles/. "$web_dir/"
           find "$web_dir" -type f -exec chmod 644 {} \;

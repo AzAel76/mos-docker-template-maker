@@ -143,7 +143,25 @@ gh_raw_file() { curl -sf "${gh_auth[@]}" "https://raw.githubusercontent.com/${ow
 # something to shrink this budget over for everyone else).
 trunc() { head -c 60000; }
 
-repo_meta=$(gh_api "https://api.github.com/repos/${owner_repo}") || fail "GitHub repo not found or inaccessible: ${owner_repo}"
+# No -f here specifically: a plain curl -sf failure on this call used to
+# get reported as a flat "repo not found", which is actively misleading
+# when the real cause is GitHub's unauthenticated rate limit (60 req/hour)
+# - that sends someone hunting for a typo in the URL instead of adding the
+# optional GitHub token in Settings. Checking the status/body distinguishes
+# the two.
+repo_meta_file=$(mktemp)
+repo_meta_status=$(curl -s "${gh_auth[@]}" -H "Accept: application/vnd.github+json" -o "$repo_meta_file" -w '%{http_code}' "https://api.github.com/repos/${owner_repo}")
+repo_meta=$(cat "$repo_meta_file" 2>/dev/null)
+rm -f "$repo_meta_file"
+if [[ "$repo_meta_status" != "200" ]]; then
+  gh_message=$(echo "$repo_meta" | jq -r '.message // empty' 2>/dev/null)
+  if [[ "$repo_meta_status" == "403" || "$repo_meta_status" == "429" ]] && echo "$gh_message" | grep -qi "rate limit"; then
+    token_hint="Set a GitHub token in the plugin's Settings tab to raise this limit."
+    [[ -n "$github_token" ]] && token_hint="The configured GitHub token doesn't appear to have raised it - double-check it in Settings."
+    fail "GitHub API rate limit exceeded. ${token_hint}"
+  fi
+  fail "GitHub repo not found or inaccessible: ${owner_repo} (HTTP ${repo_meta_status}${gh_message:+: ${gh_message}})"
+fi
 default_branch=$(echo "$repo_meta" | jq -r '.default_branch // "main"')
 
 # Full recursive tree, not just the root listing - Dockerfiles, compose
@@ -614,15 +632,19 @@ add_source_label() {
 }
 
 # ---------------------------------------------------------------------------
-# History: best-effort append of {repo, url, mode, scope, analyzed_at} to
-# HISTORY_FILE, newest first, capped at 100 entries. Never fails the
-# analysis itself - the Analyze tab's whole point still worked even if this
-# didn't. flock guards the read-modify-write against a second concurrent
-# analyze call; bin/ai-template-maker-history serves this file back to the
-# frontend's History tab.
+# History: best-effort append of {repo, url, mode, scope, provider, model,
+# result, analyzed_at} to HISTORY_FILE, newest first, capped at 100 entries.
+# Storing the full result (not just its metadata) lets the History tab
+# reopen a past analysis in the install dialog without re-running it -
+# results are small enough (a JSON template, typically a few KB) that
+# embedding them directly is simpler than a separate per-entry file. Never
+# fails the analysis itself - the Analyze tab's whole point still worked
+# even if this didn't. flock guards the read-modify-write against a second
+# concurrent analyze call; bin/ai-template-maker-history serves this file
+# back to the frontend's History tab.
 # ---------------------------------------------------------------------------
 append_history() {
-  local repo="$1" mode="$2" scope="$3" url="$4"
+  local repo="$1" mode="$2" scope="$3" url="$4" prov="$5" mdl="$6" result_json="$7"
   local hist_dir=""
   hist_dir=$(dirname "$HISTORY_FILE")
   mkdir -p "$hist_dir" 2>/dev/null || return 0
@@ -631,8 +653,9 @@ append_history() {
     flock -w 5 -x 200 || exit 0
     local entry current updated
     entry=$(jq -n --arg repo "$repo" --arg url "$url" --arg mode "$mode" --arg scope "$scope" \
+      --arg provider "$prov" --arg model "$mdl" --argjson result "$result_json" \
       --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      '{repo:$repo, url:$url, mode:$mode, scope:$scope, analyzed_at:$at}')
+      '{repo:$repo, url:$url, mode:$mode, scope:$scope, provider:$provider, model:$model, result:$result, analyzed_at:$at}')
     current=$(cat "$HISTORY_FILE" 2>/dev/null)
     jq empty <<<"$current" >/dev/null 2>&1 || current='[]'
     updated=$(jq --argjson entry "$entry" '[$entry] + . | .[0:100]' <<<"$current" 2>/dev/null)
@@ -665,5 +688,5 @@ else
   final_json=$(echo "$json_text" | jq --arg icon "${icon_url:-}" '.docker.icon = $icon')
 fi
 
-append_history "$owner_repo" "$mode" "$scope" "$repo_url"
+append_history "$owner_repo" "$mode" "$scope" "$repo_url" "$provider" "$model" "$final_json"
 echo "$final_json"

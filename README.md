@@ -17,8 +17,13 @@ Hub-style install dialog before deploying.
 
 - **`page/`** — the plugin's Vue 3 + Vuetify 4 UI source, built with `vite-plugin-federation`
   so MOS's frontend can load it as a micro-frontend at `/_plugins/ai-template-maker/remoteEntry.js`.
-  Three tabs: Analyze (paste a repo URL, pick a template scope), History (past analyses,
-  each linking back to its repo), Settings (provider selection/config).
+  Three tabs: Analyze (paste a repo URL, pick a template scope), History (past analyses - each
+  entry shows its provider/model, links back to its repo, and can reopen its stored result in
+  the install dialog without re-running the analysis), Settings (provider selection/config;
+  Ollama's model field is a dropdown populated by "Test connection" against `/api/tags`, rather
+  than free text, to rule out a typo'd/untagged model name by construction). The install dialog
+  itself is owned by `Plugin.vue`, not the Analyze tab, precisely so History can open the same
+  dialog with a stored result.
 - **`staticfiles/`** — the *built* output of `page/` (committed — see Releasing below). MOS
   copies this directory verbatim to `/boot/optional/plugins/ai-template-maker/staticfiles/`
   and serves it at `/_plugins/ai-template-maker/`.
@@ -28,34 +33,40 @@ Hub-style install dialog before deploying.
   resolves an icon, appends an entry to the history file, and prints the resulting
   template as JSON. Not called directly from the frontend (see below) — still directly
   runnable for manual testing.
-- **`bin/ai-template-maker-analyze-start`** / **`bin/ai-template-maker-analyze-status`** —
-  the frontend actually calls `-start`, which launches the real analysis (the script above)
-  as a detached background job and returns a job id almost instantly, then polls `-status`
-  every couple of seconds until it's done. This exists because analysis can comfortably
-  exceed MOS's 60-second synchronous query ceiling — seen in practice on Ollama with a
-  modest model/no GPU — and that ceiling isn't adjustable (MOS clamps it to 60s both
-  client- and server-side, and its only other execution primitive is fire-and-forget with
-  no way to return a result). Job state lives under
-  `/boot/optional/plugins/ai-template-maker/jobs/<job-id>/` and self-prunes after an hour.
+- **`bin/ai-template-maker-analyze-start`** / **`-status`** / **`-cancel`** — the frontend
+  actually calls `-start`, which launches the real analysis (the script above) as a detached
+  background job (its own process group, via `setsid`) and returns a job id almost instantly,
+  then polls `-status` every couple of seconds until it's done. This exists because analysis
+  can comfortably exceed MOS's 60-second synchronous query ceiling — seen in practice on
+  Ollama with a modest model/no GPU — and that ceiling isn't adjustable (MOS clamps it to 60s
+  both client- and server-side, and its only other execution primitive is fire-and-forget with
+  no way to return a result). The frontend gives up watching after an hour
+  (`mosClient.analyzeRepo`'s `maxWaitMs`) if it's still running, but the job itself keeps going
+  on the MOS host regardless - `-cancel` (wired to the Analyze tab's Cancel button) is what
+  actually stops it, by killing the whole recorded process group, not just abandoning the poll
+  loop. Job state lives under `/boot/optional/plugins/ai-template-maker/jobs/<job-id>/` and
+  self-prunes after 6 hours - deliberately well above the longest a client will ever wait, so a
+  second analysis starting mid-run can't prune a still-active job's directory out from under it.
 - **`bin/ai-template-maker-history`** — a bash script, installed alongside the above, that
   serves the history file (`list`) or resets it (`clear`) for the History tab.
-- **`bin/ai-template-maker-test-ollama`** — a quick reachability/model-availability check
-  (`GET <host>/api/tags`) for an Ollama host, backing the Ollama panel's "Test connection"
-  button in Settings. Tests whatever's currently typed in the form, not what's saved.
-  `ai-template-maker-analyze`'s own `call_ollama()` does the same reachability check itself
-  as a preflight before every real analysis (so an unreachable host fails fast instead of
-  hanging on the deliberately timeout-free generation request below), and also resolves the
-  configured model name against that same response - Ollama's `/api/chat` needs an exact tag
-  match (a bare `qwen2.5-coder` only resolves if a `:latest` tag happens to exist), so using
-  the configured string verbatim could pass the Settings tab's lenient test yet still get
-  rejected with an opaque HTTP error at generation time. Resolving up front to the exact
-  matched tag means anything that passes the test is guaranteed to also work, and a genuine
-  mismatch fails immediately with a clear message (and the actual pulled-model list) instead
-  of a bare curl exit code. That request also explicitly sets `options.num_ctx` (`ollama_num_ctx` in the
-  script, default 16384) - left unset, Ollama silently falls back to a model's Modelfile
-  default context window, often just 2048-4096 tokens, which is well under what the system
-  prompt plus a real README/Dockerfile/compose/env can need, causing silent truncation of
-  the actual repo content regardless of which model is configured.
+- **`bin/ai-template-maker-test-ollama`** / **`-test-anthropic`** / **`-test-gemini`** — a
+  reachability + model-availability check per provider (`GET <host>/api/tags`,
+  `GET /v1/models`, `GET /v1beta/models`), backing each panel's "Test connection" button in
+  Settings and populating its model field's dropdown. Tests whatever's currently typed in the
+  form, not what's saved. `ai-template-maker-analyze`'s own `call_ollama()` does the same
+  reachability check itself as a preflight before every real analysis (so an unreachable host
+  fails fast instead of hanging on the deliberately timeout-free generation request below), and
+  also resolves the configured model name against that same response - Ollama's `/api/chat`
+  needs an exact tag match (a bare `qwen2.5-coder` only resolves if a `:latest` tag happens to
+  exist), so using the configured string verbatim could pass the Settings tab's lenient test yet
+  still get rejected with an opaque HTTP error at generation time. Resolving up front to the
+  exact matched tag means anything that passes the test is guaranteed to also work, and a
+  genuine mismatch fails immediately with a clear message (and the actual pulled-model list)
+  instead of a bare curl exit code. That request also explicitly sets `options.num_ctx`
+  (`ollama_num_ctx` in the script, default 16384) - left unset, Ollama silently falls back to a
+  model's Modelfile default context window, often just 2048-4096 tokens, which is well under
+  what the system prompt plus a real README/Dockerfile/compose/env can need, causing silent
+  truncation of the actual repo content regardless of which model is configured.
 - **`settings.json`** — default plugin settings: a `provider` (`anthropic`/`gemini`/`ollama`)
   plus each provider's own config block (API key/model, or host/model for Ollama) and an
   optional GitHub token. Editable from the plugin's Settings tab and stored at
@@ -77,6 +88,30 @@ them two different ways depending on template mode:
   our script rather than relying on MOS: `mos-deploy_docker` only does this rewrite when
   invoked with an explicit `override_appdata` argument, which the plain REST create call
   this plugin uses never passes.
+
+### Install-dialog safety checks
+
+Beyond the general "use at your own risk" disclaimer, the install dialog flags two specific
+things worth catching before clicking Install:
+
+- **Port conflicts**: a proposed host port that's already bound by another container gets a
+  visible warning, using the same `GET /docker/mos/ports` data as the native dialogs' "Inspect"
+  panel. Docker mode checks its structured `ports` array directly; compose mode has no such
+  array (ports live in raw yaml text), so it's a regex scan for the plain `"HOST:CONTAINER"`
+  list-item form the analyze script's own schema always uses - it won't catch every valid
+  compose ports syntax if the yaml was hand-edited into a different one (mapping form, long
+  form with `target`/`published` keys), but it covers what this tool itself generates.
+- **`privileged: true`**: gets a pointed red alert next to the switch, distinct from the
+  general disclaimer - a template requesting full host access is meaningfully higher-risk than
+  the average field, and worth a second look specifically.
+
+### GitHub API rate limiting
+
+Unauthenticated requests are capped at 60/hour by GitHub. `ai-template-maker-analyze`'s repo
+metadata fetch distinguishes a 403/429 rate-limit response (by its `message` field) from a
+genuine 404 and reports it explicitly, pointing at the optional GitHub token in Settings -
+without this, a rate-limited analysis was reported as "repo not found or inaccessible", which
+sent people looking for a typo instead of the actual fix.
 
 ## Releasing
 
