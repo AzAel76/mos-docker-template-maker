@@ -458,12 +458,33 @@ call_ollama() {
   # real generation request below - that request has no timeout of its
   # own since a real analysis can legitimately take a while on this
   # provider (see ai-template-maker-analyze-start), so an unreachable host
-  # would otherwise just hang instead of failing.
-  local preflight_err
-  preflight_err=$(curl -sf --connect-timeout 5 --max-time 10 "${ollama_host%/}/api/tags" 2>&1 >/dev/null)
-  local preflight_exit=$?
-  [[ $preflight_exit -eq 0 ]] \
-    || fail "Preflight check failed: could not reach Ollama at ${ollama_host} (curl exit ${preflight_exit}${preflight_err:+: ${preflight_err}}) - is it running and reachable from the MOS host?"
+  # would otherwise just hang instead of failing. This same /api/tags call
+  # also resolves the configured model against what's actually pulled
+  # (see below), so it isn't purely a reachability probe.
+  local tags_response tags_err
+  tags_response=$(curl -sf --connect-timeout 5 --max-time 10 "${ollama_host%/}/api/tags" 2>&1)
+  local tags_exit=$?
+  [[ $tags_exit -eq 0 ]] \
+    || fail "Could not reach Ollama at ${ollama_host} (curl exit ${tags_exit}${tags_response:+: ${tags_response}}) - is it running and reachable from the MOS host?"
+
+  # Ollama's real /api/chat endpoint needs an exact model tag (a bare
+  # "qwen2.5-coder" only resolves if a ":latest" tag happens to exist) -
+  # using whatever string is configured verbatim can pass the Settings
+  # tab's lenient test (see ai-template-maker-test-ollama) yet still get
+  # rejected here with an opaque HTTP error. Resolve to the exact matched
+  # tag up front instead, with the same exact-or-prefix matching the test
+  # uses, so anything that passes that test is guaranteed to also work.
+  local resolved_model
+  resolved_model=$(echo "$tags_response" | jq -r --arg m "$model" '
+    [.models[]? | (.name // .model // "")] |
+    (map(select(. == $m)) + map(select(startswith($m + ":")))) | first // empty
+  ')
+  if [[ -z "$resolved_model" ]]; then
+    local available
+    available=$(echo "$tags_response" | jq -r '[.models[]? | (.name // .model // empty)] | join(", ")')
+    fail "Configured Ollama model '${model}' is not pulled on ${ollama_host}. Available: ${available:-none} - pull it (ollama pull ${model}) or fix the model name in Settings."
+  fi
+  model="$resolved_model"
 
   request_body=$(jq -n \
     --arg model "$model" --argjson num_ctx "$ollama_num_ctx" \
@@ -476,17 +497,27 @@ call_ollama() {
       messages: [{role:"system", content:$system}, {role:"user", content:$user}]
     }')
 
-  local request_err_file request_err
-  request_err_file=$(mktemp)
-  response=$(curl -sf \
+  # No -f here: on an HTTP error, Ollama's body is a {"error":"..."}
+  # message worth surfacing directly rather than discarding (which is
+  # exactly what happened before this model-resolution step existed - a
+  # bare "curl exit 22" with no indication it was a 404 for a mistyped tag).
+  local http_status response_file
+  response_file=$(mktemp)
+  http_status=$(curl -s --max-time 0 -o "$response_file" -w '%{http_code}' \
     -H "content-type: application/json" \
     -d "$request_body" \
-    "${ollama_host%/}/api/chat" 2>"$request_err_file")
-  local request_exit=$?
-  request_err=$(cat "$request_err_file" 2>/dev/null)
-  rm -f "$request_err_file"
-  [[ $request_exit -eq 0 ]] \
-    || fail "Generation request failed: could not reach Ollama at ${ollama_host} (curl exit ${request_exit}${request_err:+: ${request_err}}) - passed the preflight check moments earlier, so this is likely the connection dropping mid-request rather than the host being down outright."
+    "${ollama_host%/}/api/chat")
+  local curl_rc=$?
+  response=$(cat "$response_file" 2>/dev/null)
+  rm -f "$response_file"
+
+  [[ $curl_rc -eq 0 ]] \
+    || fail "Generation request failed: could not reach Ollama at ${ollama_host} (curl exit ${curl_rc}) - passed the reachability/model check moments earlier, so this is likely the connection dropping mid-request."
+  if [[ "$http_status" != "200" ]]; then
+    local ollama_err
+    ollama_err=$(echo "$response" | jq -r '.error // empty' 2>/dev/null)
+    fail "Ollama returned HTTP ${http_status} for the generation request${ollama_err:+: ${ollama_err}}"
+  fi
 
   raw_text=$(echo "$response" | jq -r '.message.content // empty')
   [[ -n "$raw_text" ]] || fail "Ollama returned no content: $(echo "$response" | jq -c '.error // .' 2>/dev/null)"

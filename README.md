@@ -43,9 +43,15 @@ Hub-style install dialog before deploying.
   (`GET <host>/api/tags`) for an Ollama host, backing the Ollama panel's "Test connection"
   button in Settings. Tests whatever's currently typed in the form, not what's saved.
   `ai-template-maker-analyze`'s own `call_ollama()` does the same reachability check itself
-  as a preflight before every real analysis, so an unreachable host fails fast instead of
-  hanging on the (deliberately timeout-free, since real analyses can take a while) generation
-  request. That request also explicitly sets `options.num_ctx` (`ollama_num_ctx` in the
+  as a preflight before every real analysis (so an unreachable host fails fast instead of
+  hanging on the deliberately timeout-free generation request below), and also resolves the
+  configured model name against that same response - Ollama's `/api/chat` needs an exact tag
+  match (a bare `qwen2.5-coder` only resolves if a `:latest` tag happens to exist), so using
+  the configured string verbatim could pass the Settings tab's lenient test yet still get
+  rejected with an opaque HTTP error at generation time. Resolving up front to the exact
+  matched tag means anything that passes the test is guaranteed to also work, and a genuine
+  mismatch fails immediately with a clear message (and the actual pulled-model list) instead
+  of a bare curl exit code. That request also explicitly sets `options.num_ctx` (`ollama_num_ctx` in the
   script, default 16384) - left unset, Ollama silently falls back to a model's Modelfile
   default context window, often just 2048-4096 tokens, which is well under what the system
   prompt plus a real README/Dockerfile/compose/env can need, causing silent truncation of
