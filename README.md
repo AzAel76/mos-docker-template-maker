@@ -18,9 +18,11 @@ Hub-style install dialog before deploying.
 
 - **`page/`** — the plugin's Vue 3 + Vuetify 4 UI source, built with `vite-plugin-federation`
   so MOS's frontend can load it as a micro-frontend at `/_plugins/ai-template-maker/remoteEntry.js`.
-  Three tabs: Analyze (paste a repo URL, pick a template scope), History (past analyses - each
-  entry shows its provider/model, links back to its repo, and can reopen its stored result in
-  the install dialog without re-running the analysis), Settings (provider selection/config;
+  Three tabs: Analyze (paste a repo URL, pick a template scope), History (past analyses,
+  successes *and* failures - each entry shows its provider/model, runtime, token usage (when the
+  provider reported one), and the actual error message for a failed one; successes link back to
+  their repo and can reopen their stored result in the install dialog without re-running the
+  analysis), Settings (provider selection/config;
   Ollama's model field is a dropdown populated by "Test connection" against `/api/tags`, rather
   than free text, to rule out a typo'd/untagged model name by construction). The install dialog
   itself is owned by `Plugin.vue`, not the Analyze tab, precisely so History can open the same
@@ -31,9 +33,15 @@ Hub-style install dialog before deploying.
 - **`bin/ai-template-maker-analyze`** — a bash script installed to `/usr/bin/plugins/` on
   the MOS host via the release `.deb` (see below). It fetches a repo's README/Dockerfile
   /compose/.env, sends them to the configured provider with the MOS template schema,
-  resolves an icon, appends an entry to the history file, and prints the resulting
-  template as JSON. Not called directly from the frontend (see below) — still directly
-  runnable for manual testing.
+  resolves an icon, and prints the resulting template as JSON. Not called directly from the
+  frontend (see below) — still directly runnable for manual testing. History logging isn't a
+  side effect bolted onto the success path: `fail()` (the single function every failure in this
+  script goes through) itself calls `log_history_failure` before printing `{"error":...}`, so
+  every failure ends up in history too, not just successes - with whatever context was actually
+  known at that point (repo/scope/provider/model - `null` for anything not yet resolved when it
+  failed) and, if a provider request had already gone out, the token usage it reported even
+  though the request itself didn't succeed. `start_time` is captured as the very first thing the
+  script does, so every entry - success or failure - also gets a `duration_seconds`.
 - **`bin/ai-template-maker-analyze-start`** / **`-status`** / **`-cancel`** — the frontend
   actually calls `-start`, which launches the real analysis (the script above) as a detached
   background job (its own process group, via `setsid`) and returns a job id almost instantly,

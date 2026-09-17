@@ -30,7 +30,24 @@ PLUGIN_NAME="ai-template-maker"
 # below for why they don't default to sharing that same boot-resident path.
 SETTINGS_FILE="/boot/optional/plugins/${PLUGIN_NAME}/settings.json"
 
+start_time=$(date +%s)
+# Set by each call_<provider>() right after it gets a response, regardless
+# of whether that response goes on to succeed or fail - even a truncated/
+# rejected response usually still reports how many tokens it burned, which
+# is exactly the kind of thing worth having in the history entry for a
+# failure. Deliberately global (not local to those functions), same as
+# $raw_text, so fail() and log_history_success/failure below can read
+# whatever was last set. Left empty until a provider call actually happens.
+usage_json=""
+
 fail() {
+  # log_history_failure isn't defined yet at this exact point in the file -
+  # that's fine, bash resolves the call by the time fail() is actually
+  # invoked, not when it's defined, and log_history_failure is defined
+  # (right below) before the first real call to fail() ever happens (the
+  # two bootstrap jq/curl-missing checks below bypass fail() entirely,
+  # specifically because fail() itself needs jq).
+  log_history_failure "$1" 2>/dev/null || true
   jq -n --arg msg "$1" '{error:$msg}'
   exit 0
 }
@@ -65,6 +82,78 @@ else
   DATA_DIR="/boot/optional/plugins/${PLUGIN_NAME}"
 fi
 HISTORY_FILE="${DATA_DIR}/history.json"
+
+# ---------------------------------------------------------------------------
+# History: best-effort append of one pre-built JSON entry to HISTORY_FILE,
+# newest first, capped at 100 entries. Never fails the analysis itself -
+# the Analyze tab's whole point still worked (or its failure was still
+# reported) even if this didn't. flock guards the read-modify-write against
+# a second concurrent analyze call; bin/ai-template-maker-history serves
+# this file back to the frontend's History tab. Defined this early (rather
+# than near the mode-dispatch code that used to be the only caller) because
+# fail() - used everywhere, including before most other context exists -
+# needs log_history_failure available from its very first real call.
+# ---------------------------------------------------------------------------
+append_history_entry() {
+  local entry_json="$1"
+  local hist_dir=""
+  hist_dir=$(dirname "$HISTORY_FILE")
+  mkdir -p "$hist_dir" 2>/dev/null || return 0
+  [[ -f "$HISTORY_FILE" ]] || echo '[]' > "$HISTORY_FILE" 2>/dev/null || return 0
+  (
+    flock -w 5 -x 200 || exit 0
+    local current updated
+    current=$(cat "$HISTORY_FILE" 2>/dev/null)
+    jq empty <<<"$current" >/dev/null 2>&1 || current='[]'
+    updated=$(jq --argjson entry "$entry_json" '[$entry] + . | .[0:100]' <<<"$current" 2>/dev/null)
+    [[ -n "$updated" ]] && echo "$updated" > "$HISTORY_FILE"
+  ) 200>"${HISTORY_FILE}.lock" 2>/dev/null
+}
+
+elapsed_seconds() {
+  echo $(( $(date +%s) - ${start_time:-$(date +%s)} ))
+}
+
+# Every value here is read via ${var:-} rather than $var, deliberately -
+# by design this can run from fail()'s very first call, before most of
+# these variables (owner_repo, mode, provider, model, scope...) have
+# necessarily been assigned yet, and set -u would otherwise abort on an
+# actually-unset one.
+log_history_success() {
+  local entry
+  entry=$(jq -n \
+    --arg repo "${owner_repo:-${repo_url:-}}" --arg url "${repo_url:-}" \
+    --arg mode "${mode:-}" --arg scope "${scope:-}" \
+    --arg provider "${provider:-}" --arg model "${model:-}" \
+    --argjson result "${final_json:-null}" \
+    --argjson usage "${usage_json:-null}" \
+    --argjson duration "$(elapsed_seconds)" \
+    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{repo:$repo, url:$url, mode:$mode, scope:$scope, provider:$provider, model:$model,
+      status:"success", result:$result, error:null, usage:$usage,
+      duration_seconds:$duration, analyzed_at:$at}')
+  append_history_entry "$entry"
+}
+
+log_history_failure() {
+  local msg="$1" entry
+  entry=$(jq -n \
+    --arg repo "${owner_repo:-${repo_url:-}}" --arg url "${repo_url:-}" \
+    --arg mode "${mode:-}" --arg scope "${scope:-}" \
+    --arg provider "${provider:-}" --arg model "${model:-}" \
+    --arg error "$msg" \
+    --argjson usage "${usage_json:-null}" \
+    --argjson duration "$(elapsed_seconds)" \
+    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{repo:$repo, url:$url,
+      mode: (if $mode=="" then null else $mode end),
+      scope: (if $scope=="" then null else $scope end),
+      provider: (if $provider=="" then null else $provider end),
+      model: (if $model=="" then null else $model end),
+      status:"error", result:null, error:$error, usage:$usage,
+      duration_seconds:$duration, analyzed_at:$at}')
+  append_history_entry "$entry"
+}
 
 repo_url="${1:-}"
 [[ -n "$repo_url" ]] || fail "A repository URL is required"
@@ -500,6 +589,16 @@ call_anthropic() {
     fail "Claude API returned HTTP ${http_status}${api_err:+: ${api_err}}"
   fi
 
+  # Set before any of this function's own remaining fail() calls, so a
+  # truncated/empty response still gets logged to history with how many
+  # tokens it actually used.
+  usage_json=$(echo "$response" | jq -c '
+    if .usage then
+      {prompt_tokens: (.usage.input_tokens // 0), completion_tokens: (.usage.output_tokens // 0),
+       total_tokens: ((.usage.input_tokens // 0) + (.usage.output_tokens // 0))}
+    else null end
+  ' 2>/dev/null)
+
   stop_reason=$(echo "$response" | jq -r '.stop_reason // empty')
   # Content is an array of typed blocks (thinking, text, ...) - find the text
   # block instead of assuming index 0.
@@ -541,6 +640,13 @@ call_gemini() {
     api_err=$(echo "$response" | jq -r '.error.message // empty' 2>/dev/null)
     fail "Gemini API returned HTTP ${http_status}${api_err:+: ${api_err}}"
   fi
+
+  usage_json=$(echo "$response" | jq -c '
+    if .usageMetadata then
+      {prompt_tokens: (.usageMetadata.promptTokenCount // 0), completion_tokens: (.usageMetadata.candidatesTokenCount // 0),
+       total_tokens: (.usageMetadata.totalTokenCount // 0)}
+    else null end
+  ' 2>/dev/null)
 
   finish_reason=$(echo "$response" | jq -r '.candidates[0].finishReason // empty')
   raw_text=$(echo "$response" | jq -r '.candidates[0].content.parts[0].text // empty')
@@ -620,6 +726,17 @@ call_ollama() {
     fail "Ollama returned HTTP ${http_status} for the generation request${ollama_err:+: ${ollama_err}}"
   fi
 
+  # Ollama's own field names (prompt_eval_count/eval_count), not OpenAI's -
+  # normalized to the same {prompt_tokens, completion_tokens, total_tokens}
+  # shape every other provider reports, so the frontend doesn't need to
+  # know which provider produced a given history entry to display it.
+  usage_json=$(echo "$response" | jq -c '
+    if (.prompt_eval_count // .eval_count) then
+      {prompt_tokens: (.prompt_eval_count // 0), completion_tokens: (.eval_count // 0),
+       total_tokens: ((.prompt_eval_count // 0) + (.eval_count // 0))}
+    else null end
+  ' 2>/dev/null)
+
   raw_text=$(echo "$response" | jq -r '.message.content // empty')
   [[ -n "$raw_text" ]] || fail "Ollama returned no content: $(echo "$response" | jq -c '.error // .' 2>/dev/null)"
 }
@@ -680,6 +797,16 @@ call_openai() {
     api_err=$(echo "$response" | jq -r '.error.message // empty' 2>/dev/null)
     fail "OpenAI-compatible server returned HTTP ${http_status} for the generation request${api_err:+: ${api_err}}"
   fi
+
+  # Set before the reasoning-model check below, deliberately - that's
+  # exactly the case where seeing "completion_tokens" hit the configured
+  # budget exactly is the most useful confirmation of what happened.
+  usage_json=$(echo "$response" | jq -c '
+    if .usage then
+      {prompt_tokens: (.usage.prompt_tokens // 0), completion_tokens: (.usage.completion_tokens // 0),
+       total_tokens: (.usage.total_tokens // 0)}
+    else null end
+  ' 2>/dev/null)
 
   raw_text=$(echo "$response" | jq -r '.choices[0].message.content // empty')
   if [[ -z "$raw_text" ]]; then
@@ -794,38 +921,6 @@ add_source_label() {
   ')
 }
 
-# ---------------------------------------------------------------------------
-# History: best-effort append of {repo, url, mode, scope, provider, model,
-# result, analyzed_at} to HISTORY_FILE, newest first, capped at 100 entries.
-# Storing the full result (not just its metadata) lets the History tab
-# reopen a past analysis in the install dialog without re-running it -
-# results are small enough (a JSON template, typically a few KB) that
-# embedding them directly is simpler than a separate per-entry file. Never
-# fails the analysis itself - the Analyze tab's whole point still worked
-# even if this didn't. flock guards the read-modify-write against a second
-# concurrent analyze call; bin/ai-template-maker-history serves this file
-# back to the frontend's History tab.
-# ---------------------------------------------------------------------------
-append_history() {
-  local repo="$1" mode="$2" scope="$3" url="$4" prov="$5" mdl="$6" result_json="$7"
-  local hist_dir=""
-  hist_dir=$(dirname "$HISTORY_FILE")
-  mkdir -p "$hist_dir" 2>/dev/null || return 0
-  [[ -f "$HISTORY_FILE" ]] || echo '[]' > "$HISTORY_FILE" 2>/dev/null || return 0
-  (
-    flock -w 5 -x 200 || exit 0
-    local entry current updated
-    entry=$(jq -n --arg repo "$repo" --arg url "$url" --arg mode "$mode" --arg scope "$scope" \
-      --arg provider "$prov" --arg model "$mdl" --argjson result "$result_json" \
-      --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      '{repo:$repo, url:$url, mode:$mode, scope:$scope, provider:$provider, model:$model, result:$result, analyzed_at:$at}')
-    current=$(cat "$HISTORY_FILE" 2>/dev/null)
-    jq empty <<<"$current" >/dev/null 2>&1 || current='[]'
-    updated=$(jq --argjson entry "$entry" '[$entry] + . | .[0:100]' <<<"$current" 2>/dev/null)
-    [[ -n "$updated" ]] && echo "$updated" > "$HISTORY_FILE"
-  ) 200>"${HISTORY_FILE}.lock" 2>/dev/null
-}
-
 mode=$(echo "$json_text" | jq -r '.mode // "docker"')
 if [[ "$mode" == "compose" ]]; then
   raw_name=$(echo "$json_text" | jq -r '.name // "app"')
@@ -851,5 +946,5 @@ else
   final_json=$(echo "$json_text" | jq --arg icon "${icon_url:-}" '.docker.icon = $icon')
 fi
 
-append_history "$owner_repo" "$mode" "$scope" "$repo_url" "$provider" "$model" "$final_json"
+log_history_success
 echo "$final_json"

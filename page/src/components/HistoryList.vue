@@ -16,15 +16,29 @@
       <v-list v-else lines="two" class="bg-transparent">
         <v-list-item v-for="(entry, i) in entries" :key="i" class="px-0">
           <template #prepend>
-            <v-icon :icon="entry.mode === 'compose' ? 'mdi-layers-outline' : 'mdi-package-variant'" class="mr-3" />
+            <v-icon
+              :icon="entry.status === 'error' ? 'mdi-alert-circle-outline' : (entry.mode === 'compose' ? 'mdi-layers-outline' : 'mdi-package-variant')"
+              :color="entry.status === 'error' ? 'error' : undefined"
+              class="mr-3"
+            />
           </template>
 
           <v-list-item-title>{{ entry.repo }}</v-list-item-title>
           <v-list-item-subtitle>
-            <v-chip size="x-small" variant="tonal" class="mr-1">{{ entry.mode === "compose" ? "Compose" : "Docker" }}</v-chip>
-            <v-chip size="x-small" variant="tonal" class="mr-1">{{ entry.scope === "all" ? "All settings" : "Required only" }}</v-chip>
+            <!-- entry.status/duration_seconds/usage/error are all absent on
+                 history entries written before this was added - every one
+                 of these is individually v-if-guarded so an old entry just
+                 renders the same as it always did, nothing extra assumed. -->
+            <v-chip v-if="entry.status === 'error'" size="x-small" color="error" variant="tonal" class="mr-1">Failed</v-chip>
+            <v-chip v-if="entry.mode" size="x-small" variant="tonal" class="mr-1">{{ entry.mode === "compose" ? "Compose" : "Docker" }}</v-chip>
+            <v-chip v-if="entry.scope" size="x-small" variant="tonal" class="mr-1">{{ entry.scope === "all" ? "All settings" : "Required only" }}</v-chip>
             <v-chip v-if="entry.provider" size="x-small" variant="tonal" class="mr-1">{{ providerModelLabel(entry) }}</v-chip>
-            <span class="text-caption">{{ formatDate(entry.analyzed_at) }}</span>
+            <span class="text-caption text-medium-emphasis">
+              {{ formatDate(entry.analyzed_at) }}
+              <template v-if="entry.duration_seconds != null">· {{ entry.duration_seconds }}s</template>
+              <template v-if="entry.usage">· {{ formatUsage(entry.usage) }}</template>
+            </span>
+            <div v-if="entry.error" class="text-caption text-error mt-1" :title="entry.error">{{ entry.error }}</div>
           </v-list-item-subtitle>
 
           <template #append>
@@ -74,6 +88,11 @@ const PROVIDER_NAMES = { anthropic: "Anthropic", gemini: "Gemini", ollama: "Olla
 function providerModelLabel(entry) {
   const name = PROVIDER_NAMES[entry.provider] || entry.provider;
   return entry.model ? `${name} · ${entry.model}` : name;
+}
+
+function formatUsage(usage) {
+  if (!usage || typeof usage.total_tokens !== "number") return "";
+  return `${usage.total_tokens.toLocaleString()} tokens`;
 }
 
 function formatDate(iso) {
