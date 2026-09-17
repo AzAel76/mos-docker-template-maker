@@ -1391,7 +1391,7 @@ var _sfc_main$1 = {
 			},
 			ollama: {
 				host: "http://localhost:11434",
-				model: "llama3.1"
+				model: "qwen2.5-coder:7b"
 			},
 			github_token: ""
 		});
@@ -1622,13 +1622,13 @@ var _sfc_main$1 = {
 												density: "compact",
 												class: "mb-3"
 											}, {
-												default: _withCtx$1(() => [..._cache[20] || (_cache[20] = [_createTextVNode$1(" Completely free and private — no API key, nothing leaves your network. The tradeoff: it's noticeably slower than a cloud API (especially without a GPU), and small local models are less reliable at producing this whole schema correctly in one shot. A slow model can also exceed MOS's 60-second query timeout, in which case the analysis just fails. ", -1)])]),
+												default: _withCtx$1(() => [..._cache[20] || (_cache[20] = [_createTextVNode$1(" Completely free and private — no API key, nothing leaves your network. The tradeoff: it's noticeably slower than a cloud API (especially without a GPU) — analysis runs as a background job and keeps waiting rather than timing out, but that can still mean several minutes. Small local models are also less reliable at producing this whole schema correctly in one shot; models tuned for structured/code output (e.g. Qwen2.5-Coder) tend to do noticeably better here than general-purpose ones of similar size (e.g. Llama 3.1). ", -1)])]),
 												_: 1
 											}),
 											_cache[22] || (_cache[22] = _createElementVNode$1("div", { class: "text-caption text-medium-emphasis mb-3" }, [
 												_createElementVNode$1("strong", null, "Setup:"),
 												_createTextVNode$1(" install Ollama (ollama.com) on a machine reachable from this MOS host → run "),
-												_createElementVNode$1("code", null, "ollama pull llama3.1"),
+												_createElementVNode$1("code", null, "ollama pull qwen2.5-coder:7b"),
 												_createTextVNode$1(" (or another model) → make sure its API port (default 11434) is reachable from this host → set the host/model below. ")
 											], -1)),
 											_createVNode$1(_component_v_text_field, {

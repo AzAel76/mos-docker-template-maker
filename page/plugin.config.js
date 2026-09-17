@@ -1,6 +1,6 @@
 export default {
   name: "ai-template-maker",
-  version: "0.1.13",
+  version: "0.1.14",
   displayName: "AI Template Maker",
   description: "Generate MOS Docker/Compose templates from a repository using AI, with a MOS Hub-style install dialog.",
   icon: "mdi-robot-outline",
