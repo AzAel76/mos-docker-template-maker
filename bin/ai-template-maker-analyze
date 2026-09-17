@@ -451,6 +451,13 @@ Rules:
   mailer), prefer the simplest self-contained one - don't drag in
   infrastructure that isn't required just because a compose example
   showed it as an option.
+- If the README recommends docker-compose but no compose file content is
+  provided below (or it's empty), you have no evidence of what services
+  it defines. Do not guess at sidecar services (a database, a cache, a
+  message broker) to reconstruct one - use "docker" mode with the single
+  image evidenced by the Dockerfile/README instead. A guessed compose
+  file that turns out wrong is worse than a single-container template
+  that omits an optional accelerator.
 - If a \`docker run\` command uses \`--env-file\`, the actual environment
   variables are NOT in that command - they're in the .env/.env.example
   file provided below (if any). Treat that file as the authoritative
@@ -458,6 +465,10 @@ Rules:
   comment immediately above each key as its "description", and its
   example/default value as "value" (blank placeholders like "" or
   "changeme" stay blank/placeholder - don't invent a real-looking secret).
+  Skip keys that are docker-compose/orchestration bookkeeping rather than
+  app configuration (e.g. "COMPOSE_PROJECT_NAME") - they only mean
+  something inside a compose deployment and have nothing to configure in
+  a single container, so they never become a "variables" entry.
 ${scope_rule}
 - Set "mask": true for any variable that is a password, token, secret, or
   API key.
@@ -471,6 +482,22 @@ ${scope_rule}
   Dockerfile's EXPOSE/ENV PORT, a compose file's ports mapping, or the
   README states a specific port, use that exact number even if it's an
   unusual choice.
+- If the input only shows a Dockerfile that BUILDS the image (a \`FROM\`
+  base plus app source, no README/compose line naming a published,
+  pullable image), look for a stated pull reference elsewhere in the
+  input (a \`docker run\`/\`docker pull\`/compose \`image:\` line, a registry
+  badge or link in the README). If one is stated, use it verbatim. If
+  none is stated anywhere in the input, use "ghcr.io/<owner>/<repo>:latest"
+  from the given Repository URL as the pull image - GHCR is where GitHub
+  projects that ship a Dockerfile without a separate published-image
+  announcement are overwhelmingly hosted. This is a stated fallback rule,
+  not something to weigh against alternatives - use it and move on rather
+  than reasoning further about which registry is "more likely" correct.
+- If a Dockerfile declares multiple VOLUME paths, include ALL of them as
+  separate "paths" entries. Do not try to infer which subset is
+  "essential" from path names alone (e.g. a "data" vs "export" or
+  "cache" directory) - that judgment isn't reliably derivable from a
+  Dockerfile, so the rule is simply: every declared VOLUME gets an entry.
 - Host-side paths follow different conventions per mode, and this
   overrides whatever host path the repo's own docs happen to show
   (they're written for the repo author's machine, not this one):
