@@ -1006,7 +1006,7 @@ var _sfc_main$3 = {
 				_createVNode$3(_component_v_card, { flat: "" }, {
 					default: _withCtx$3(() => [_createVNode$3(_component_v_card_text, null, {
 						default: _withCtx$3(() => [
-							_cache[7] || (_cache[7] = _createElementVNode$3("p", { class: "text-body-2 text-medium-emphasis mb-4" }, " Paste a GitHub repository URL. Claude will look at its README, Dockerfile, and any Compose file to build a MOS template, resolve an icon, and let you review it before installing. ", -1)),
+							_cache[7] || (_cache[7] = _createElementVNode$3("p", { class: "text-body-2 text-medium-emphasis mb-4" }, " Paste a GitHub repository URL. Your configured AI provider will look at its README, Dockerfile, and any Compose file to build a MOS template, resolve an icon, and let you review it before installing. ", -1)),
 							error.value ? (_openBlock$3(), _createBlock$3(_component_v_alert, {
 								key: 0,
 								type: "error",

@@ -1,8 +1,8 @@
 export default {
   name: "ai-template-maker",
-  version: "0.1.8",
+  version: "0.1.9",
   displayName: "AI Template Maker",
-  description: "Generate MOS Docker/Compose templates from a repository using Claude, with a MOS Hub-style install dialog.",
+  description: "Generate MOS Docker/Compose templates from a repository using AI, with a MOS Hub-style install dialog.",
   icon: "mdi-robot-outline",
   author: "AzAel76",
   homepage: "https://github.com/AzAel76/mos-docker-template-maker"
