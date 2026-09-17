@@ -27,6 +27,23 @@ Hub-style install dialog before deploying.
   optional GitHub token. Editable from the plugin's Settings tab and stored at
   `/boot/optional/plugins/ai-template-maker/settings.json`.
 
+### Host paths and the appdata directory
+
+Generated host paths never hardcode a guessed pool/directory name, because MOS resolves
+them two different ways depending on template mode:
+
+- **compose mode**: every volume's host side is a relative `./<service-name>/<subpath>`
+  path. MOS runs each stack from a working directory already inside the real configured
+  appdata location (`dockercompose.service.js`'s `_getWorkingPath`), so a relative path
+  always lands in the right place with no extra work.
+- **docker mode**: the model invents the placeholder `/mnt/cache/appdata/<app>/<name>`
+  (matching MOS's own Hub template convention), and `ai-template-maker-analyze` rewrites
+  it to the box's real configured path by reading `/boot/config/docker.json`'s `.appdata`
+  field directly — the same file `mos-deploy_docker` itself reads. This has to happen in
+  our script rather than relying on MOS: `mos-deploy_docker` only does this rewrite when
+  invoked with an explicit `override_appdata` argument, which the plain REST create call
+  this plugin uses never passes.
+
 ## Releasing
 
 MOS installs a plugin from a GitHub Release in two parts: a single `.deb` asset matching

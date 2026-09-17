@@ -175,7 +175,7 @@ compose_schema_example=$(cat <<'EOF'
 {
   "mode": "compose",
   "name": "immich",
-  "yaml": "services:\n  immich-server:\n    image: ghcr.io/immich-app/immich-server:release\n    ports:\n      - \"2283:2283\"\n    volumes:\n      - /mnt/cache/appdata/immich/upload:/usr/src/app/upload\n  immich-redis:\n    image: redis:6.2-alpine\n",
+  "yaml": "services:\n  immich-server:\n    image: ghcr.io/immich-app/immich-server:release\n    ports:\n      - \"2283:2283\"\n    volumes:\n      - ./immich-server/upload:/usr/src/app/upload\n  immich-redis:\n    image: redis:6.2-alpine\n    volumes:\n      - ./immich-redis/data:/data\n",
   "env": "TZ=UTC\nDB_PASSWORD=changeme\n",
   "template": {
     "name": "Immich",
@@ -258,11 +258,24 @@ ${scope_rule}
 - Note in each such variable's description when the README marks it
   Required vs optional, and any stated constraints (e.g. "min 32 chars").
 - Use real values from the provided README/Dockerfile/compose/env
-  content: the actual image tag, actual ports, actual volumes/paths.
-  Do not invent ports or paths that aren't evidenced in the input.
-- Use MOS's standard host path convention: /mnt/cache/appdata/<app>/<name>
-  for any path you must invent (e.g. a config volume with no host path
-  specified upstream).
+  content: the actual image tag, actual ports, actual container-side
+  volume paths. Do not invent ports or container paths that aren't
+  evidenced in the input.
+- Host-side paths follow different conventions per mode, and this
+  overrides whatever host path the repo's own docs happen to show
+  (they're written for the repo author's machine, not this one):
+  - compose mode: every volume's host side must be a RELATIVE path in
+    the form "./<service-name>/<subpath>" (see the example's
+    "./immich-server/upload" and "./immich-redis/data" - one subfolder
+    per service so they don't collide). Never an absolute path like
+    /mnt/... here - MOS runs each stack from a working directory that's
+    already inside the real configured appdata location, so a relative
+    path always lands in the right place regardless of what that host's
+    appdata pool is actually called.
+  - docker mode: use the literal placeholder /mnt/cache/appdata/<app>/<name>
+    for any host path you must invent (e.g. a config volume with no host
+    path specified upstream). This placeholder gets rewritten to the
+    real configured appdata path automatically.
 - web_ui_url / webui must use the literal placeholder tokens shown in the
   examples ([IP], [PORT:xxxx], {IP}) - do not guess a real IP. Use the
   container port (not the example host port) in [PORT:xxxx].
@@ -426,6 +439,37 @@ sanitize_name() {
 }
 
 # ---------------------------------------------------------------------------
+# Docker mode host paths: the model is told to invent /mnt/cache/appdata/...
+# placeholders (mirroring MOS's own Hub template convention - see
+# hub.service.js's _remapAppdataPaths, which does this same rewrite for
+# templates fetched through MOS's own Hub browser). mos-deploy_docker only
+# performs this rewrite when explicitly invoked with an "override_appdata"
+# argument, which the plain REST create call we use never passes - so
+# without doing it ourselves, an invented placeholder would get created
+# completely literally, landing on whatever pool is literally named "cache"
+# (or nothing at all, on a system that doesn't have one). This script runs
+# directly on the MOS host, so it can read the box's actual configured
+# appdata path from the same file mos-deploy_docker itself reads
+# (/boot/config/docker.json) and apply the same substitution
+# mos-deploy_docker's override_appdata mode does: replace everything up
+# through the first "/appdata/" with the real configured path.
+# ---------------------------------------------------------------------------
+remap_appdata_paths() {
+  local real_appdata
+  real_appdata=$(jq -r '.appdata // empty' /boot/config/docker.json 2>/dev/null)
+  [[ -n "$real_appdata" ]] || return 0
+  json_text=$(echo "$json_text" | jq --arg appdata "${real_appdata%/}" '
+    if (.docker.paths | type) == "array" then
+      .docker.paths |= map(
+        if ((.host // "") | test("/appdata/")) then
+          .host = ($appdata + "/" + ((.host) | sub(".*?/appdata/"; "")))
+        else . end
+      )
+    else . end
+  ')
+}
+
+# ---------------------------------------------------------------------------
 # History: best-effort append of {repo, url, mode, scope, analyzed_at} to
 # HISTORY_FILE, newest first, capped at 100 entries. Never fails the
 # analysis itself - the Analyze tab's whole point still worked even if this
@@ -470,6 +514,7 @@ else
   raw_name=$(echo "$json_text" | jq -r '.docker.name // "app"')
   safe_name=$(sanitize_name "$raw_name")
   json_text=$(echo "$json_text" | jq --arg name "$safe_name" '.docker.name = $name')
+  remap_appdata_paths
   app_name=$(echo "$json_text" | jq -r '.docker.name')
   icon_url=$(resolve_icon "$app_name")
   final_json=$(echo "$json_text" | jq --arg icon "${icon_url:-}" '.docker.icon = $icon')
