@@ -55,8 +55,11 @@ npm run build    # produces the federated remoteEntry.js + Plugin chunk
 To exercise the analyze script outside of MOS:
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-... ./bin/ai-template-maker-analyze https://github.com/owner/repo
+ANTHROPIC_API_KEY=sk-ant-... ./bin/ai-template-maker-analyze https://github.com/owner/repo [all|required]
 ```
+
+The optional second argument controls template scope: `all` (default) includes every
+setting found in the repo's docs; `required` includes only what's needed to run.
 
 ## Status
 

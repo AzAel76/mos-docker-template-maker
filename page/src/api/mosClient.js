@@ -56,7 +56,7 @@ export const mosClient = {
   saveSettings(settings) {
     return request(`/mos/plugins/settings/${PLUGIN_NAME}`, { method: "POST", body: settings });
   },
-  async analyzeRepo(repoUrl, { timeout = 60 } = {}) {
+  async analyzeRepo(repoUrl, { timeout = 60, scope = "all" } = {}) {
     // POST /mos/plugins/query wraps the script's stdout in
     // {success, output, exit_code, duration_ms, timed_out} - `output` is
     // the parsed JSON (parse_json: true) our script printed. The script
@@ -65,11 +65,13 @@ export const mosClient = {
     // discards stdout on a non-zero exit - so `success: false` here means
     // something MOS-level went wrong (command missing, genuinely crashed),
     // not a normal "analysis failed" case.
+    // scope: "all" (default - every setting found) or "required" (only
+    // what's needed to run) - passed straight through as the script's 2nd arg.
     const res = await request("/mos/plugins/query", {
       method: "POST",
       body: {
         command: "ai-template-maker-analyze",
-        args: [repoUrl],
+        args: [repoUrl, scope],
         timeout: Math.min(timeout, 60),
         parse_json: true
       }

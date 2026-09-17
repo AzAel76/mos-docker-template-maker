@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Invoked via MOS's synchronous plugin query endpoint:
-#   POST /mos/plugins/query {command:"ai-template-maker-analyze", args:[repoUrl], parse_json:true}
+#   POST /mos/plugins/query {command:"ai-template-maker-analyze", args:[repoUrl, scope], parse_json:true}
+#   scope is "all" (default - every setting found, comprehensive) or
+#   "required" (only what's needed for the app to run).
 # Must live at /usr/bin/plugins/ai-template-maker-analyze on the MOS host
 # (installed there by the plugin's `functions` install() hook).
 #
@@ -32,22 +34,41 @@ command -v curl >/dev/null 2>&1 || { echo '{"error":"curl is required on the MOS
 repo_url="${1:-}"
 [[ -n "$repo_url" ]] || fail "A repository URL is required"
 
+scope="${2:-all}"
+case "$scope" in
+  all|required) ;;
+  *) fail "Invalid scope '${scope}' (expected 'all' or 'required')" ;;
+esac
+
 # ---------------------------------------------------------------------------
 # Settings: env vars win (used for standalone/manual testing), then
 # settings.json written by the plugin's Settings tab.
 # ---------------------------------------------------------------------------
-api_key="${ANTHROPIC_API_KEY:-}"
+provider="${MOS_TEMPLATE_MAKER_PROVIDER:-}"
+api_key="${ANTHROPIC_API_KEY:-${GEMINI_API_KEY:-}}"
 model="${MOS_TEMPLATE_MAKER_MODEL:-}"
 github_token="${GITHUB_TOKEN:-}"
+ollama_host="${OLLAMA_HOST:-}"
 
 if [[ -f "$SETTINGS_FILE" ]]; then
+  [[ -z "$provider" ]] && provider=$(jq -r '.provider // empty' "$SETTINGS_FILE" 2>/dev/null)
   [[ -z "$api_key" ]] && api_key=$(jq -r '.api_key // empty' "$SETTINGS_FILE" 2>/dev/null)
   [[ -z "$model" ]] && model=$(jq -r '.model // empty' "$SETTINGS_FILE" 2>/dev/null)
   [[ -z "$github_token" ]] && github_token=$(jq -r '.github_token // empty' "$SETTINGS_FILE" 2>/dev/null)
+  [[ -z "$ollama_host" ]] && ollama_host=$(jq -r '.ollama_host // empty' "$SETTINGS_FILE" 2>/dev/null)
 fi
-model="${model:-claude-sonnet-5}"
+provider="${provider:-anthropic}"
 
-[[ -n "$api_key" ]] || fail "No Anthropic API key configured. Set it in the plugin's Settings tab."
+case "$provider" in
+  anthropic) model="${model:-claude-sonnet-5}" ;;
+  gemini)    model="${model:-gemini-2.5-flash}" ;;
+  ollama)    model="${model:-llama3.1}"; ollama_host="${ollama_host:-http://localhost:11434}" ;;
+  *) fail "Unknown provider '${provider}' (expected anthropic, gemini, or ollama)" ;;
+esac
+
+if [[ "$provider" != "ollama" ]]; then
+  [[ -n "$api_key" ]] || fail "No API key configured for ${provider}. Set it in the plugin's Settings tab."
+fi
 
 # ---------------------------------------------------------------------------
 # Parse owner/repo out of the given URL.
@@ -154,14 +175,34 @@ EOF
 # above. Whether this is a single-container ("docker") or multi-service
 # ("compose") app is Claude's call, based on the actual services it sees.
 # ---------------------------------------------------------------------------
-system_prompt=$(cat <<EOF
-You turn a software project's install docs into a MOS (mos-official.net) app
-template. The point of this template is to let someone try out a new
+if [[ "$scope" == "required" ]]; then
+  scope_purpose="The point of this template is to let someone get this
+self-hosted service running with the least amount of setup: it should
+include only what the app actually needs to start - required variables,
+its essential config/data paths, its main service port(s) - and leave out
+everything optional or advanced, even if the docs mention it."
+  scope_rule="- Include ONLY variables/paths/ports that are required for the
+  app to run: the docs mark them Required, or the app has no usable default
+  and won't start without them. Omit optional/advanced ones entirely - the
+  goal here is the smallest working template, not an exhaustive one. A
+  short list is correct here; don't pad it out with anything the app can
+  run without."
+else
+  scope_purpose="The point of this template is to let someone try out a new
 self-hosted service without typing or copy-pasting config by hand: it
 should arrive with every setting they might plausibly need already present
 (with a sensible default, or blank with a description) so they only ever
 have to delete what they don't want, never hunt down and add something
-that's missing. MOS templates come in two shapes:
+that's missing."
+  scope_rule="- Include every variable you find - optional/advanced ones
+  included. Do NOT prune down to a \"required only\" subset; a long list
+  the user can delete from is correct, a short list they'd have to add to
+  is not."
+fi
+
+system_prompt=$(cat <<EOF
+You turn a software project's install docs into a MOS (mos-official.net) app
+template. ${scope_purpose} MOS templates come in two shapes:
 
 1) "docker" mode - for a single-container app (a plain \`docker run\`, or a
    compose file with exactly one service). Output shape (see example):
@@ -172,6 +213,13 @@ ${docker_schema_example}
 ${compose_schema_example}
 
 Rules:
+- "name" ("docker.name" in docker mode, top-level "name" in compose mode)
+  is a literal Docker container/stack identifier, not a display title -
+  Docker rejects anything outside [a-zA-Z0-9][a-zA-Z0-9_.-]*. Use a
+  lowercase-hyphenated slug of the app's name (e.g. "github-release-monitor",
+  not "GitHub Release Monitor"). In compose mode this is separate from
+  "template.name", which is the human-readable display title and can keep
+  spaces/capitalization normally.
 - Prefer "docker" mode whenever the app only truly needs one container to
   run standalone. If the repo documents more than one deployment method
   (e.g. a plain \`docker run\` AND a docker-compose example that adds a
@@ -186,9 +234,7 @@ Rules:
   comment immediately above each key as its "description", and its
   example/default value as "value" (blank placeholders like "" or
   "changeme" stay blank/placeholder - don't invent a real-looking secret).
-- Include every variable you find - optional/advanced ones included. Do
-  NOT prune down to a "required only" subset; a long list the user can
-  delete from is correct, a short list they'd have to add to is not.
+${scope_rule}
 - Set "mask": true for any variable that is a password, token, secret, or
   API key.
 - Note in each such variable's description when the README marks it
@@ -225,6 +271,10 @@ ${env_t}
 EOF
 )
 
+# Each provider fills the shared $raw_text with the model's answer (a JSON
+# string, possibly fenced) and fail()s itself on any error/truncation.
+budget=8192
+
 # claude-sonnet-5 runs adaptive extended thinking by default, which prepends
 # a "thinking" content block before the "text" block - max_tokens covers
 # both, and content[0] is the thinking block, not the answer. Request
@@ -232,36 +282,91 @@ EOF
 # doesn't need "high") and budget enough tokens for both a real thinking
 # pass and a large, comprehensive template (36+ variables is normal - see
 # the comprehensiveness rule above), well within MOS's 60s query timeout.
-request_body=$(jq -n \
-  --arg model "$model" \
-  --arg system "$system_prompt" \
-  --arg user "$user_content" \
-  '{
-    model: $model,
-    max_tokens: 8192,
-    thinking: {type: "adaptive"},
-    output_config: {effort: "medium"},
-    system: $system,
-    messages: [{role:"user", content:$user}]
-  }')
+call_anthropic() {
+  local request_body response stop_reason
+  request_body=$(jq -n \
+    --arg model "$model" --argjson budget "$budget" \
+    --arg system "$system_prompt" --arg user "$user_content" \
+    '{
+      model: $model,
+      max_tokens: $budget,
+      thinking: {type: "adaptive"},
+      output_config: {effort: "medium"},
+      system: $system,
+      messages: [{role:"user", content:$user}]
+    }')
 
-response=$(curl -sf \
-  -H "x-api-key: ${api_key}" \
-  -H "anthropic-version: 2023-06-01" \
-  -H "content-type: application/json" \
-  -d "$request_body" \
-  "https://api.anthropic.com/v1/messages") || fail "Claude API request failed"
+  response=$(curl -sf \
+    -H "x-api-key: ${api_key}" \
+    -H "anthropic-version: 2023-06-01" \
+    -H "content-type: application/json" \
+    -d "$request_body" \
+    "https://api.anthropic.com/v1/messages") || fail "Claude API request failed"
 
-stop_reason=$(echo "$response" | jq -r '.stop_reason // empty')
-# Content is an array of typed blocks (thinking, text, ...) - find the text
-# block instead of assuming index 0.
-raw_text=$(echo "$response" | jq -r '[.content[]? | select(.type == "text") | .text] | join("")')
-if [[ -z "$raw_text" ]]; then
-  fail "Claude returned no content (stop_reason: ${stop_reason:-unknown}): $(echo "$response" | jq -c '.error // .' 2>/dev/null)"
-fi
-if [[ "$stop_reason" == "max_tokens" ]]; then
-  fail "Claude's response was truncated (hit the token limit) before finishing the template"
-fi
+  stop_reason=$(echo "$response" | jq -r '.stop_reason // empty')
+  # Content is an array of typed blocks (thinking, text, ...) - find the text
+  # block instead of assuming index 0.
+  raw_text=$(echo "$response" | jq -r '[.content[]? | select(.type == "text") | .text] | join("")')
+  [[ -n "$raw_text" ]] || fail "Claude returned no content (stop_reason: ${stop_reason:-unknown}): $(echo "$response" | jq -c '.error // .' 2>/dev/null)"
+  [[ "$stop_reason" != "max_tokens" ]] || fail "Claude's response was truncated (hit the token limit) before finishing the template"
+}
+
+# Gemini's free API tier - responseMimeType forces strict JSON, so no
+# fence-stripping is needed for this path (harmless if it stays anyway).
+call_gemini() {
+  local request_body response finish_reason
+  request_body=$(jq -n \
+    --argjson budget "$budget" \
+    --arg system "$system_prompt" --arg user "$user_content" \
+    '{
+      system_instruction: {parts: [{text: $system}]},
+      contents: [{role: "user", parts: [{text: $user}]}],
+      generationConfig: {responseMimeType: "application/json", maxOutputTokens: $budget}
+    }')
+
+  response=$(curl -sf \
+    -H "content-type: application/json" \
+    -d "$request_body" \
+    "https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${api_key}") \
+    || fail "Gemini API request failed"
+
+  finish_reason=$(echo "$response" | jq -r '.candidates[0].finishReason // empty')
+  raw_text=$(echo "$response" | jq -r '.candidates[0].content.parts[0].text // empty')
+  [[ -n "$raw_text" ]] || fail "Gemini returned no content (finishReason: ${finish_reason:-unknown}): $(echo "$response" | jq -c '.error // .' 2>/dev/null)"
+  [[ "$finish_reason" != "MAX_TOKENS" ]] || fail "Gemini's response was truncated (hit the token limit) before finishing the template"
+}
+
+# Local model via Ollama - no API key, but no vendor safety net either:
+# small local models are noticeably less reliable at holding this whole
+# schema together than Claude/Gemini, and there's no billing wall to hide
+# a slow first-token cold start behind MOS's 60s query timeout.
+call_ollama() {
+  local request_body response
+  request_body=$(jq -n \
+    --arg model "$model" \
+    --arg system "$system_prompt" --arg user "$user_content" \
+    '{
+      model: $model,
+      stream: false,
+      format: "json",
+      messages: [{role:"system", content:$system}, {role:"user", content:$user}]
+    }')
+
+  response=$(curl -sf \
+    -H "content-type: application/json" \
+    -d "$request_body" \
+    "${ollama_host%/}/api/chat") \
+    || fail "Could not reach Ollama at ${ollama_host} - is it running and reachable from the MOS host?"
+
+  raw_text=$(echo "$response" | jq -r '.message.content // empty')
+  [[ -n "$raw_text" ]] || fail "Ollama returned no content: $(echo "$response" | jq -c '.error // .' 2>/dev/null)"
+}
+
+case "$provider" in
+  anthropic) call_anthropic ;;
+  gemini)    call_gemini ;;
+  ollama)    call_ollama ;;
+esac
 
 # Strip stray markdown fences if the model added them despite instructions.
 json_text=$(echo "$raw_text" | sed -E '/^```/d')
@@ -290,8 +395,23 @@ resolve_icon() {
   done
 }
 
+# Docker container/stack names must match [a-zA-Z0-9][a-zA-Z0-9_.-]* - the
+# system prompt tells the model this, but don't rely on it complying (seen in
+# practice: "GitHub Release Monitor" instead of "github-release-monitor",
+# which the Docker daemon rejects outright at creation time). slugify()
+# already produces a safe charset; just guard against an all-symbols input
+# collapsing to an empty/invalid string.
+sanitize_name() {
+  local slug
+  slug=$(slugify "$1")
+  echo "${slug:-app}"
+}
+
 mode=$(echo "$json_text" | jq -r '.mode // "docker"')
 if [[ "$mode" == "compose" ]]; then
+  raw_name=$(echo "$json_text" | jq -r '.name // "app"')
+  safe_name=$(sanitize_name "$raw_name")
+  json_text=$(echo "$json_text" | jq --arg name "$safe_name" '.name = $name')
   app_name=$(echo "$json_text" | jq -r '.template.name // .name')
   icon_url=$(resolve_icon "$app_name")
   echo "$json_text" | jq --arg icon "${icon_url:-}" '.template.icon = $icon'
@@ -302,6 +422,9 @@ else
   if [[ "$has_docker_key" != "true" ]]; then
     json_text=$(jq -n --argjson d "$json_text" '{mode:"docker", docker:$d}')
   fi
+  raw_name=$(echo "$json_text" | jq -r '.docker.name // "app"')
+  safe_name=$(sanitize_name "$raw_name")
+  json_text=$(echo "$json_text" | jq --arg name "$safe_name" '.docker.name = $name')
   app_name=$(echo "$json_text" | jq -r '.docker.name')
   icon_url=$(resolve_icon "$app_name")
   echo "$json_text" | jq --arg icon "${icon_url:-}" '.docker.icon = $icon'

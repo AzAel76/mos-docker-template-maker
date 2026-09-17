@@ -1,5 +1,7 @@
 {
+  "provider": "anthropic",
   "api_key": "",
   "model": "claude-sonnet-5",
+  "ollama_host": "http://localhost:11434",
   "github_token": ""
 }
