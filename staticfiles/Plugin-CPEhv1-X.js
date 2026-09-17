@@ -182,6 +182,20 @@ var mosClient = {
 			}
 		})).success) throw new Error("Could not clear history");
 		return true;
+	},
+	async deleteHistoryEntry(id) {
+		const res = await request("/mos/plugins/query", {
+			method: "POST",
+			body: {
+				command: "ai-template-maker-history",
+				args: ["delete", id],
+				timeout: 10,
+				parse_json: true
+			}
+		});
+		if (!res.success) throw new Error("Could not delete this history entry");
+		if (res.output?.error) throw new Error(res.output.error);
+		return Array.isArray(res.output) ? res.output : [];
 	}
 };
 //#endregion
@@ -370,6 +384,7 @@ var _sfc_main$4 = {
 		const entries = ref$3([]);
 		const loading = ref$3(true);
 		const clearing = ref$3(false);
+		const deletingId = ref$3(null);
 		const error = ref$3("");
 		const PROVIDER_NAMES = {
 			anthropic: "Anthropic",
@@ -399,6 +414,18 @@ var _sfc_main$4 = {
 				error.value = e.message;
 			} finally {
 				loading.value = false;
+			}
+		}
+		async function deleteEntry(entry) {
+			if (!confirm(`Delete this history entry for "${entry.repo}"? This can't be undone.`)) return;
+			deletingId.value = entry.id;
+			error.value = "";
+			try {
+				entries.value = await mosClient.deleteHistoryEntry(entry.id);
+			} catch (e) {
+				error.value = e.message;
+			} finally {
+				deletingId.value = null;
 			}
 		}
 		async function clear() {
@@ -450,7 +477,7 @@ var _sfc_main$4 = {
 					}, {
 						default: _withCtx$4(() => [(_openBlock$4(true), _createElementBlock$3(_Fragment$3, null, _renderList$2(entries.value, (entry, i) => {
 							return _openBlock$4(), _createBlock$3(_component_v_list_item, {
-								key: i,
+								key: entry.id || i,
 								class: "px-0"
 							}, {
 								prepend: _withCtx$4(() => [_createVNode$4(_component_v_icon, {
@@ -458,24 +485,38 @@ var _sfc_main$4 = {
 									color: entry.status === "error" ? "error" : void 0,
 									class: "mr-3"
 								}, null, 8, ["icon", "color"])]),
-								append: _withCtx$4(() => [entry.result ? (_openBlock$4(), _createBlock$3(_component_v_btn, {
-									key: 0,
-									icon: "mdi-eye-outline",
-									size: "small",
-									variant: "text",
-									title: "View result",
-									"aria-label": "View this analysis result",
-									onClick: ($event) => _ctx.$emit("open-result", entry.result)
-								}, null, 8, ["onClick"])) : _createCommentVNode$3("", true), _createVNode$4(_component_v_btn, {
-									icon: "mdi-open-in-new",
-									size: "small",
-									variant: "text",
-									href: entry.url,
-									target: "_blank",
-									rel: "noopener noreferrer",
-									title: "Open repository",
-									"aria-label": "Open repository in a new tab"
-								}, null, 8, ["href"])]),
+								append: _withCtx$4(() => [
+									entry.result ? (_openBlock$4(), _createBlock$3(_component_v_btn, {
+										key: 0,
+										icon: "mdi-eye-outline",
+										size: "small",
+										variant: "text",
+										title: "View result",
+										"aria-label": "View this analysis result",
+										onClick: ($event) => _ctx.$emit("open-result", entry.result)
+									}, null, 8, ["onClick"])) : _createCommentVNode$3("", true),
+									_createVNode$4(_component_v_btn, {
+										icon: "mdi-open-in-new",
+										size: "small",
+										variant: "text",
+										href: entry.url,
+										target: "_blank",
+										rel: "noopener noreferrer",
+										title: "Open repository",
+										"aria-label": "Open repository in a new tab"
+									}, null, 8, ["href"]),
+									entry.id ? (_openBlock$4(), _createBlock$3(_component_v_btn, {
+										key: 1,
+										icon: "mdi-delete-outline",
+										size: "small",
+										variant: "text",
+										color: "error",
+										loading: deletingId.value === entry.id,
+										title: "Delete this entry",
+										"aria-label": "Delete this history entry",
+										onClick: ($event) => deleteEntry(entry)
+									}, null, 8, ["loading", "onClick"])) : _createCommentVNode$3("", true)
+								]),
 								default: _withCtx$4(() => [_createVNode$4(_component_v_list_item_title, null, {
 									default: _withCtx$4(() => [_createTextVNode$4(_toDisplayString$3(entry.repo), 1)]),
 									_: 2
@@ -591,12 +632,14 @@ var _sfc_main$3 = {
 			},
 			ollama: {
 				host: "http://localhost:11434",
-				model: "qwen2.5-coder:7b"
+				model: "qwen2.5-coder:7b",
+				num_ctx: 16384
 			},
 			openai: {
 				base_url: "https://api.openai.com/v1",
 				api_key: "",
-				model: "gpt-4o"
+				model: "gpt-4o",
+				max_tokens: 16384
 			},
 			github_token: ""
 		});
@@ -747,12 +790,14 @@ var _sfc_main$3 = {
 					},
 					ollama: {
 						host: form.ollama.host.trim(),
-						model: (form.ollama.model || "").trim()
+						model: (form.ollama.model || "").trim(),
+						num_ctx: Number(form.ollama.num_ctx) > 0 ? Math.round(Number(form.ollama.num_ctx)) : 16384
 					},
 					openai: {
 						base_url: form.openai.base_url.trim(),
 						api_key: form.openai.api_key.trim(),
-						model: (form.openai.model || "").trim()
+						model: (form.openai.model || "").trim(),
+						max_tokens: Number(form.openai.max_tokens) > 0 ? Math.round(Number(form.openai.max_tokens)) : 16384
 					},
 					github_token: form.github_token.trim()
 				};
@@ -800,7 +845,7 @@ var _sfc_main$3 = {
 							class: "mb-4",
 							density: "compact"
 						}, {
-							default: _withCtx$3(() => [..._cache[12] || (_cache[12] = [_createTextVNode$3(" Settings saved. ", -1)])]),
+							default: _withCtx$3(() => [..._cache[14] || (_cache[14] = [_createTextVNode$3(" Settings saved. ", -1)])]),
 							_: 1
 						})) : _createCommentVNode$2("", true),
 						_createVNode$3(_component_v_select, {
@@ -814,20 +859,20 @@ var _sfc_main$3 = {
 						}, null, 8, ["modelValue"]),
 						_createVNode$3(_component_v_expansion_panels, {
 							modelValue: openPanel.value,
-							"onUpdate:modelValue": _cache[10] || (_cache[10] = ($event) => openPanel.value = $event),
+							"onUpdate:modelValue": _cache[12] || (_cache[12] = ($event) => openPanel.value = $event),
 							class: "mb-4",
 							variant: "accordion"
 						}, {
 							default: _withCtx$3(() => [
 								_createVNode$3(_component_v_expansion_panel, { value: "anthropic" }, {
 									default: _withCtx$3(() => [_createVNode$3(_component_v_expansion_panel_title, null, {
-										default: _withCtx$3(() => [_cache[14] || (_cache[14] = _createTextVNode$3(" Anthropic (Claude) ", -1)), form.provider === "anthropic" ? (_openBlock$3(), _createBlock$2(_component_v_chip, {
+										default: _withCtx$3(() => [_cache[16] || (_cache[16] = _createTextVNode$3(" Anthropic (Claude) ", -1)), form.provider === "anthropic" ? (_openBlock$3(), _createBlock$2(_component_v_chip, {
 											key: 0,
 											size: "x-small",
 											color: "primary",
 											class: "ml-2"
 										}, {
-											default: _withCtx$3(() => [..._cache[13] || (_cache[13] = [_createTextVNode$3("Default", -1)])]),
+											default: _withCtx$3(() => [..._cache[15] || (_cache[15] = [_createTextVNode$3("Default", -1)])]),
 											_: 1
 										})) : _createCommentVNode$2("", true)]),
 										_: 1
@@ -839,14 +884,14 @@ var _sfc_main$3 = {
 												density: "compact",
 												class: "mb-3"
 											}, {
-												default: _withCtx$3(() => [..._cache[15] || (_cache[15] = [
+												default: _withCtx$3(() => [..._cache[17] || (_cache[17] = [
 													_createTextVNode$3(" Requires a ", -1),
 													_createElementVNode$3("strong", null, "paid", -1),
 													_createTextVNode$3(" API key with billing enabled — there is no free tier for API access. In exchange it's the most reliable at following the template schema exactly and rarely needs a retry. Cost is usage-based, typically a few cents per repository analyzed. ", -1)
 												])]),
 												_: 1
 											}),
-											_cache[17] || (_cache[17] = _createElementVNode$3("div", { class: "text-caption text-medium-emphasis mb-3" }, [_createElementVNode$3("strong", null, "Setup:"), _createTextVNode$3(" sign in at console.anthropic.com → add billing/credits → API Keys → Create Key → paste it below and test it → pick a model from what the key can access. ")], -1)),
+											_cache[19] || (_cache[19] = _createElementVNode$3("div", { class: "text-caption text-medium-emphasis mb-3" }, [_createElementVNode$3("strong", null, "Setup:"), _createTextVNode$3(" sign in at console.anthropic.com → add billing/credits → API Keys → Create Key → paste it below and test it → pick a model from what the key can access. ")], -1)),
 											_createVNode$3(_component_v_text_field, {
 												modelValue: form.anthropic.api_key,
 												"onUpdate:modelValue": _cache[1] || (_cache[1] = ($event) => form.anthropic.api_key = $event),
@@ -862,7 +907,7 @@ var _sfc_main$3 = {
 												disabled: !form.anthropic.api_key,
 												onClick: testAnthropic
 											}, {
-												default: _withCtx$3(() => [..._cache[16] || (_cache[16] = [_createTextVNode$3(" Test connection ", -1)])]),
+												default: _withCtx$3(() => [..._cache[18] || (_cache[18] = [_createTextVNode$3(" Test connection ", -1)])]),
 												_: 1
 											}, 8, ["loading", "disabled"]),
 											anthropicTestResult.value ? (_openBlock$3(), _createBlock$2(_component_v_alert, {
@@ -894,13 +939,13 @@ var _sfc_main$3 = {
 								}),
 								_createVNode$3(_component_v_expansion_panel, { value: "gemini" }, {
 									default: _withCtx$3(() => [_createVNode$3(_component_v_expansion_panel_title, null, {
-										default: _withCtx$3(() => [_cache[19] || (_cache[19] = _createTextVNode$3(" Google Gemini ", -1)), form.provider === "gemini" ? (_openBlock$3(), _createBlock$2(_component_v_chip, {
+										default: _withCtx$3(() => [_cache[21] || (_cache[21] = _createTextVNode$3(" Google Gemini ", -1)), form.provider === "gemini" ? (_openBlock$3(), _createBlock$2(_component_v_chip, {
 											key: 0,
 											size: "x-small",
 											color: "primary",
 											class: "ml-2"
 										}, {
-											default: _withCtx$3(() => [..._cache[18] || (_cache[18] = [_createTextVNode$3("Default", -1)])]),
+											default: _withCtx$3(() => [..._cache[20] || (_cache[20] = [_createTextVNode$3("Default", -1)])]),
 											_: 1
 										})) : _createCommentVNode$2("", true)]),
 										_: 1
@@ -912,10 +957,10 @@ var _sfc_main$3 = {
 												density: "compact",
 												class: "mb-3"
 											}, {
-												default: _withCtx$3(() => [..._cache[20] || (_cache[20] = [_createTextVNode$3(" Google AI Studio issues real API keys with a genuinely free tier — no billing required for typical personal use. The tradeoff: free-tier requests are rate-limited (fewer analyses per minute/day), and Gemini is somewhat less consistent than Claude at holding together this exact JSON schema on the first try. ", -1)])]),
+												default: _withCtx$3(() => [..._cache[22] || (_cache[22] = [_createTextVNode$3(" Google AI Studio issues real API keys with a genuinely free tier — no billing required for typical personal use. The tradeoff: free-tier requests are rate-limited (fewer analyses per minute/day), and Gemini is somewhat less consistent than Claude at holding together this exact JSON schema on the first try. ", -1)])]),
 												_: 1
 											}),
-											_cache[22] || (_cache[22] = _createElementVNode$3("div", { class: "text-caption text-medium-emphasis mb-3" }, [_createElementVNode$3("strong", null, "Setup:"), _createTextVNode$3(" go to aistudio.google.com → sign in with a Google account → \"Get API key\" → \"Create API key\" → paste it below and test it → pick a model from what's available. ")], -1)),
+											_cache[24] || (_cache[24] = _createElementVNode$3("div", { class: "text-caption text-medium-emphasis mb-3" }, [_createElementVNode$3("strong", null, "Setup:"), _createTextVNode$3(" go to aistudio.google.com → sign in with a Google account → \"Get API key\" → \"Create API key\" → paste it below and test it → pick a model from what's available. ")], -1)),
 											_createVNode$3(_component_v_text_field, {
 												modelValue: form.gemini.api_key,
 												"onUpdate:modelValue": _cache[3] || (_cache[3] = ($event) => form.gemini.api_key = $event),
@@ -931,7 +976,7 @@ var _sfc_main$3 = {
 												disabled: !form.gemini.api_key,
 												onClick: testGemini
 											}, {
-												default: _withCtx$3(() => [..._cache[21] || (_cache[21] = [_createTextVNode$3(" Test connection ", -1)])]),
+												default: _withCtx$3(() => [..._cache[23] || (_cache[23] = [_createTextVNode$3(" Test connection ", -1)])]),
 												_: 1
 											}, 8, ["loading", "disabled"]),
 											geminiTestResult.value ? (_openBlock$3(), _createBlock$2(_component_v_alert, {
@@ -963,13 +1008,13 @@ var _sfc_main$3 = {
 								}),
 								_createVNode$3(_component_v_expansion_panel, { value: "ollama" }, {
 									default: _withCtx$3(() => [_createVNode$3(_component_v_expansion_panel_title, null, {
-										default: _withCtx$3(() => [_cache[24] || (_cache[24] = _createTextVNode$3(" Ollama (local, self-hosted) ", -1)), form.provider === "ollama" ? (_openBlock$3(), _createBlock$2(_component_v_chip, {
+										default: _withCtx$3(() => [_cache[26] || (_cache[26] = _createTextVNode$3(" Ollama (local, self-hosted) ", -1)), form.provider === "ollama" ? (_openBlock$3(), _createBlock$2(_component_v_chip, {
 											key: 0,
 											size: "x-small",
 											color: "primary",
 											class: "ml-2"
 										}, {
-											default: _withCtx$3(() => [..._cache[23] || (_cache[23] = [_createTextVNode$3("Default", -1)])]),
+											default: _withCtx$3(() => [..._cache[25] || (_cache[25] = [_createTextVNode$3("Default", -1)])]),
 											_: 1
 										})) : _createCommentVNode$2("", true)]),
 										_: 1
@@ -981,10 +1026,34 @@ var _sfc_main$3 = {
 												density: "compact",
 												class: "mb-3"
 											}, {
-												default: _withCtx$3(() => [..._cache[25] || (_cache[25] = [_createTextVNode$3(" Completely free and private — no API key, nothing leaves your network. The tradeoff: it's noticeably slower than a cloud API (especially without a GPU) — analysis runs as a background job and keeps waiting rather than timing out, but that can still mean many minutes on modest hardware. Small local models are also less reliable at producing this whole schema correctly in one shot; models tuned for structured/code output (e.g. Qwen2.5-Coder) tend to do noticeably better here than general-purpose ones of similar size (e.g. Llama 3.1). ", -1)])]),
+												default: _withCtx$3(() => [..._cache[27] || (_cache[27] = [_createTextVNode$3(" Completely free and private — no API key, nothing leaves your network. The tradeoff: it's noticeably slower than a cloud API (especially without a GPU) — analysis runs as a background job and keeps waiting rather than timing out, but that can still mean many minutes on modest hardware. ", -1)])]),
 												_: 1
 											}),
-											_cache[27] || (_cache[27] = _createElementVNode$3("div", { class: "text-caption text-medium-emphasis mb-3" }, [
+											_createVNode$3(_component_v_alert, {
+												type: "warning",
+												variant: "tonal",
+												density: "compact",
+												class: "mb-3"
+											}, {
+												default: _withCtx$3(() => [..._cache[28] || (_cache[28] = [
+													_createElementVNode$3("strong", null, "Model choice matters a lot here.", -1),
+													_createTextVNode$3(" Avoid reasoning/\"thinking\" variants (names like ", -1),
+													_createElementVNode$3("code", null, "-thinking", -1),
+													_createTextVNode$3(", ", -1),
+													_createElementVNode$3("code", null, "QwQ", -1),
+													_createTextVNode$3(", ", -1),
+													_createElementVNode$3("code", null, "DeepSeek-R1", -1),
+													_createTextVNode$3(") - this is structured extraction, not multi-step logic, and a reasoning model mostly burns its token budget narrating its thought process before ever producing the answer. Good fits, roughly best first: ", -1),
+													_createElementVNode$3("code", null, "qwen2.5-coder:7b", -1),
+													_createTextVNode$3(" (default) or ", -1),
+													_createElementVNode$3("code", null, ":14b", -1),
+													_createTextVNode$3(" for better quality, Mistral-Small/Mistral-Nemo, Phi-4. If pulling a Qwen3-family model, prefer its plain ", -1),
+													_createElementVNode$3("code", null, "-instruct", -1),
+													_createTextVNode$3(" tag over a thinking-enabled one. ", -1)
+												])]),
+												_: 1
+											}),
+											_cache[30] || (_cache[30] = _createElementVNode$3("div", { class: "text-caption text-medium-emphasis mb-3" }, [
 												_createElementVNode$3("strong", null, "Setup:"),
 												_createTextVNode$3(" install Ollama (ollama.com) on a machine reachable from this MOS host → run "),
 												_createElementVNode$3("code", null, "ollama pull qwen2.5-coder:7b"),
@@ -1006,7 +1075,7 @@ var _sfc_main$3 = {
 												disabled: !form.ollama.host,
 												onClick: testOllama
 											}, {
-												default: _withCtx$3(() => [..._cache[26] || (_cache[26] = [_createTextVNode$3(" Test connection ", -1)])]),
+												default: _withCtx$3(() => [..._cache[29] || (_cache[29] = [_createTextVNode$3(" Test connection ", -1)])]),
 												_: 1
 											}, 8, ["loading", "disabled"]),
 											ollamaTestResult.value ? (_openBlock$3(), _createBlock$2(_component_v_alert, {
@@ -1025,12 +1094,24 @@ var _sfc_main$3 = {
 												items: ollamaModels.value,
 												label: "Model",
 												hint: ollamaModels.value.length ? "Pulled on that host - pick one, or type a different name." : "Test the connection to list what's pulled there, or type a name directly.",
-												"persistent-hint": ""
+												"persistent-hint": "",
+												class: "mb-2"
 											}, null, 8, [
 												"modelValue",
 												"items",
 												"hint"
-											])
+											]),
+											_createVNode$3(_component_v_text_field, {
+												modelValue: form.ollama.num_ctx,
+												"onUpdate:modelValue": _cache[7] || (_cache[7] = ($event) => form.ollama.num_ctx = $event),
+												modelModifiers: { number: true },
+												type: "number",
+												min: "2048",
+												step: "2048",
+												label: "Context window (num_ctx)",
+												hint: "Raise this if analysis fails saying the model ran out of context/budget. Higher uses more memory and can be slower.",
+												"persistent-hint": ""
+											}, null, 8, ["modelValue"])
 										]),
 										_: 1
 									})]),
@@ -1038,13 +1119,13 @@ var _sfc_main$3 = {
 								}),
 								_createVNode$3(_component_v_expansion_panel, { value: "openai" }, {
 									default: _withCtx$3(() => [_createVNode$3(_component_v_expansion_panel_title, null, {
-										default: _withCtx$3(() => [_cache[29] || (_cache[29] = _createTextVNode$3(" OpenAI-compatible ", -1)), form.provider === "openai" ? (_openBlock$3(), _createBlock$2(_component_v_chip, {
+										default: _withCtx$3(() => [_cache[32] || (_cache[32] = _createTextVNode$3(" OpenAI-compatible ", -1)), form.provider === "openai" ? (_openBlock$3(), _createBlock$2(_component_v_chip, {
 											key: 0,
 											size: "x-small",
 											color: "primary",
 											class: "ml-2"
 										}, {
-											default: _withCtx$3(() => [..._cache[28] || (_cache[28] = [_createTextVNode$3("Default", -1)])]),
+											default: _withCtx$3(() => [..._cache[31] || (_cache[31] = [_createTextVNode$3("Default", -1)])]),
 											_: 1
 										})) : _createCommentVNode$2("", true)]),
 										_: 1
@@ -1056,10 +1137,34 @@ var _sfc_main$3 = {
 												density: "compact",
 												class: "mb-3"
 											}, {
-												default: _withCtx$3(() => [..._cache[30] || (_cache[30] = [_createTextVNode$3(" Not limited to OpenAI's own cloud API - the base URL below can point at any server speaking the same Chat Completions format (LM Studio, vLLM's OpenAI server, text-generation-webui, LocalAI, llama.cpp server mode, etc.), the same way Ollama above covers local models with its own API. Cost and reliability depend entirely on what you point this at: OpenAI's cloud API is paid and generally reliable; a local server is free and private but inherits the same speed/quality tradeoffs as Ollama. ", -1)])]),
+												default: _withCtx$3(() => [..._cache[33] || (_cache[33] = [_createTextVNode$3(" Not limited to OpenAI's own cloud API - the base URL below can point at any server speaking the same Chat Completions format (LM Studio, vLLM's OpenAI server, text-generation-webui, LocalAI, llama.cpp server mode, etc.), the same way Ollama above covers local models with its own API. Cost and reliability depend entirely on what you point this at: OpenAI's cloud API is paid and generally reliable; a local server is free and private but inherits the same speed/quality tradeoffs as Ollama. ", -1)])]),
 												_: 1
 											}),
-											_cache[32] || (_cache[32] = _createElementVNode$3("div", { class: "text-caption text-medium-emphasis mb-3" }, [
+											_createVNode$3(_component_v_alert, {
+												type: "warning",
+												variant: "tonal",
+												density: "compact",
+												class: "mb-3"
+											}, {
+												default: _withCtx$3(() => [..._cache[34] || (_cache[34] = [
+													_createElementVNode$3("strong", null, "If pointed at a local server, model choice matters a lot.", -1),
+													_createTextVNode$3(" Avoid reasoning/\"thinking\" variants (names like ", -1),
+													_createElementVNode$3("code", null, "-thinking", -1),
+													_createTextVNode$3(", ", -1),
+													_createElementVNode$3("code", null, "QwQ", -1),
+													_createTextVNode$3(", ", -1),
+													_createElementVNode$3("code", null, "DeepSeek-R1", -1),
+													_createTextVNode$3(") - this is structured extraction, not multi-step logic, and a reasoning model mostly burns its token budget narrating its thought process before ever producing the answer (seen in practice: a reasoning model exhausting its entire budget this way with nothing written to its actual answer). Good fits: ", -1),
+													_createElementVNode$3("code", null, "qwen2.5-coder:7b", -1),
+													_createTextVNode$3("/", -1),
+													_createElementVNode$3("code", null, ":14b", -1),
+													_createTextVNode$3(", Mistral-Small/Mistral-Nemo, Phi-4. If serving a Qwen3-family model, prefer its plain ", -1),
+													_createElementVNode$3("code", null, "-instruct", -1),
+													_createTextVNode$3(" tag over a thinking-enabled one. ", -1)
+												])]),
+												_: 1
+											}),
+											_cache[36] || (_cache[36] = _createElementVNode$3("div", { class: "text-caption text-medium-emphasis mb-3" }, [
 												_createElementVNode$3("strong", null, "Setup (OpenAI cloud):"),
 												_createTextVNode$3(" platform.openai.com → API keys → Create new secret key → paste it below. "),
 												_createElementVNode$3("strong", null, "Setup (local server):"),
@@ -1069,7 +1174,7 @@ var _sfc_main$3 = {
 											], -1)),
 											_createVNode$3(_component_v_text_field, {
 												modelValue: form.openai.base_url,
-												"onUpdate:modelValue": _cache[7] || (_cache[7] = ($event) => form.openai.base_url = $event),
+												"onUpdate:modelValue": _cache[8] || (_cache[8] = ($event) => form.openai.base_url = $event),
 												label: "Base URL",
 												hint: "e.g. https://api.openai.com/v1 or http://localhost:1234/v1",
 												"persistent-hint": "",
@@ -1077,7 +1182,7 @@ var _sfc_main$3 = {
 											}, null, 8, ["modelValue"]),
 											_createVNode$3(_component_v_text_field, {
 												modelValue: form.openai.api_key,
-												"onUpdate:modelValue": _cache[8] || (_cache[8] = ($event) => form.openai.api_key = $event),
+												"onUpdate:modelValue": _cache[9] || (_cache[9] = ($event) => form.openai.api_key = $event),
 												label: "API key (optional for most local servers)",
 												type: "password",
 												class: "mb-2"
@@ -1090,7 +1195,7 @@ var _sfc_main$3 = {
 												disabled: !form.openai.base_url,
 												onClick: testOpenai
 											}, {
-												default: _withCtx$3(() => [..._cache[31] || (_cache[31] = [_createTextVNode$3(" Test connection ", -1)])]),
+												default: _withCtx$3(() => [..._cache[35] || (_cache[35] = [_createTextVNode$3(" Test connection ", -1)])]),
 												_: 1
 											}, 8, ["loading", "disabled"]),
 											openaiTestResult.value ? (_openBlock$3(), _createBlock$2(_component_v_alert, {
@@ -1105,16 +1210,28 @@ var _sfc_main$3 = {
 											}, 8, ["type"])) : _createCommentVNode$2("", true),
 											_createVNode$3(_component_v_combobox, {
 												modelValue: form.openai.model,
-												"onUpdate:modelValue": _cache[9] || (_cache[9] = ($event) => form.openai.model = $event),
+												"onUpdate:modelValue": _cache[10] || (_cache[10] = ($event) => form.openai.model = $event),
 												items: openaiModels.value,
 												label: "Model",
 												hint: openaiModels.value.length ? "Available on that server - pick one, or type a different name." : "Test the connection to list what's available, or type a name directly.",
-												"persistent-hint": ""
+												"persistent-hint": "",
+												class: "mb-2"
 											}, null, 8, [
 												"modelValue",
 												"items",
 												"hint"
-											])
+											]),
+											_createVNode$3(_component_v_text_field, {
+												modelValue: form.openai.max_tokens,
+												"onUpdate:modelValue": _cache[11] || (_cache[11] = ($event) => form.openai.max_tokens = $event),
+												modelModifiers: { number: true },
+												type: "number",
+												min: "1024",
+												step: "1024",
+												label: "Max output tokens",
+												hint: "Raise this if analysis fails saying the model hit its token limit - common with reasoning models. Higher means a slower, more expensive request when it's actually needed.",
+												"persistent-hint": ""
+											}, null, 8, ["modelValue"])
 										]),
 										_: 1
 									})]),
@@ -1125,7 +1242,7 @@ var _sfc_main$3 = {
 						}, 8, ["modelValue"]),
 						_createVNode$3(_component_v_text_field, {
 							modelValue: form.github_token,
-							"onUpdate:modelValue": _cache[11] || (_cache[11] = ($event) => form.github_token = $event),
+							"onUpdate:modelValue": _cache[13] || (_cache[13] = ($event) => form.github_token = $event),
 							label: "GitHub token (optional)",
 							type: "password",
 							hint: "Raises GitHub API rate limits when analyzing repos. Not required for public repos at low volume.",
@@ -1139,7 +1256,7 @@ var _sfc_main$3 = {
 						loading: saving.value,
 						onClick: save
 					}, {
-						default: _withCtx$3(() => [..._cache[33] || (_cache[33] = [_createTextVNode$3("Save", -1)])]),
+						default: _withCtx$3(() => [..._cache[37] || (_cache[37] = [_createTextVNode$3("Save", -1)])]),
 						_: 1
 					}, 8, ["loading"])]),
 					_: 1
