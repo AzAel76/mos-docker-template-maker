@@ -1,6 +1,6 @@
 import { r as importShared } from "./_virtual___federation_fn_import-fHUJv7KH.js";
 //#region src/components/EditableList.vue
-var { toDisplayString: _toDisplayString$4, createElementVNode: _createElementVNode$4, createTextVNode: _createTextVNode$5, resolveComponent: _resolveComponent$5, withCtx: _withCtx$5, createVNode: _createVNode$5, renderList: _renderList$1, Fragment: _Fragment$3, openBlock: _openBlock$5, createElementBlock: _createElementBlock$3, createBlock: _createBlock$5, createCommentVNode: _createCommentVNode$4, renderSlot: _renderSlot } = await importShared("vue");
+var { toDisplayString: _toDisplayString$4, createElementVNode: _createElementVNode$5, createTextVNode: _createTextVNode$5, resolveComponent: _resolveComponent$5, withCtx: _withCtx$5, createVNode: _createVNode$5, renderList: _renderList$1, Fragment: _Fragment$3, openBlock: _openBlock$5, createElementBlock: _createElementBlock$3, createBlock: _createBlock$5, createCommentVNode: _createCommentVNode$4, renderSlot: _renderSlot } = await importShared("vue");
 var _hoisted_1$3 = { class: "text-subtitle-1 font-weight-medium" };
 var _hoisted_2$3 = { class: "d-flex flex-column align-center" };
 var _sfc_main$5 = {
@@ -47,7 +47,7 @@ var _sfc_main$5 = {
 					cols: "12",
 					class: "d-flex align-center justify-space-between"
 				}, {
-					default: _withCtx$5(() => [_createElementVNode$4("span", _hoisted_1$3, _toDisplayString$4(__props.title), 1), _createVNode$5(_component_v_btn, {
+					default: _withCtx$5(() => [_createElementVNode$5("span", _hoisted_1$3, _toDisplayString$4(__props.title), 1), _createVNode$5(_component_v_btn, {
 						variant: "text",
 						size: "small",
 						class: "ma-1 pa-0",
@@ -79,7 +79,7 @@ var _sfc_main$5 = {
 						cols: "1",
 						class: "d-flex flex-column justify-center align-center"
 					}, {
-						default: _withCtx$5(() => [_createElementVNode$4("div", _hoisted_2$3, [_createVNode$5(_component_v_btn, {
+						default: _withCtx$5(() => [_createElementVNode$5("div", _hoisted_2$3, [_createVNode$5(_component_v_btn, {
 							icon: "",
 							size: "x-small",
 							color: "green",
@@ -241,7 +241,7 @@ var _plugin_vue_export_helper_default = (sfc, props) => {
 };
 //#endregion
 //#region src/components/InstallDialog.vue
-var { resolveComponent: _resolveComponent$4, openBlock: _openBlock$4, createBlock: _createBlock$4, createCommentVNode: _createCommentVNode$3, withCtx: _withCtx$4, createVNode: _createVNode$4, toDisplayString: _toDisplayString$3, createElementVNode: _createElementVNode$3, createTextVNode: _createTextVNode$4, Fragment: _Fragment$2, createElementBlock: _createElementBlock$2 } = await importShared("vue");
+var { resolveComponent: _resolveComponent$4, openBlock: _openBlock$4, createBlock: _createBlock$4, createCommentVNode: _createCommentVNode$3, withCtx: _withCtx$4, createVNode: _createVNode$4, toDisplayString: _toDisplayString$3, createElementVNode: _createElementVNode$4, createTextVNode: _createTextVNode$4, Fragment: _Fragment$2, createElementBlock: _createElementBlock$2 } = await importShared("vue");
 var _hoisted_1$2 = { class: "text-h6" };
 var _hoisted_2$2 = { class: "text-caption text-medium-emphasis" };
 var _hoisted_3$1 = { class: "mb-4" };
@@ -383,7 +383,7 @@ var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 									}))]),
 									_: 1
 								}),
-								_createElementVNode$3("div", null, [_createElementVNode$3("div", _hoisted_1$2, _toDisplayString$3(displayName.value), 1), _createElementVNode$3("div", _hoisted_2$2, _toDisplayString$3(mode.value === "compose" ? "Docker Compose stack" : "Single container"), 1)]),
+								_createElementVNode$4("div", null, [_createElementVNode$4("div", _hoisted_1$2, _toDisplayString$3(displayName.value), 1), _createElementVNode$4("div", _hoisted_2$2, _toDisplayString$3(mode.value === "compose" ? "Docker Compose stack" : "Single container"), 1)]),
 								_createVNode$4(_component_v_spacer),
 								category.value ? (_openBlock$4(), _createBlock$4(_component_v_chip, {
 									key: 0,
@@ -876,7 +876,7 @@ var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 										label: "Stack name",
 										class: "mb-4"
 									}, null, 8, ["modelValue"]),
-									_createElementVNode$3("div", _hoisted_3$1, [_createVNode$4(_component_v_label, {
+									_createElementVNode$4("div", _hoisted_3$1, [_createVNode$4(_component_v_label, {
 										class: "text-body-2",
 										style: { "display": "block" }
 									}, {
@@ -890,7 +890,7 @@ var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 										variant: "outlined",
 										"hide-details": ""
 									}, null, 8, ["modelValue"])]),
-									_createElementVNode$3("div", _hoisted_4, [_createVNode$4(_component_v_label, {
+									_createElementVNode$4("div", _hoisted_4, [_createVNode$4(_component_v_label, {
 										class: "text-body-2",
 										style: { "display": "block" }
 									}, {
@@ -961,7 +961,7 @@ var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 }, [["__scopeId", "data-v-1bbd6d4b"]]);
 //#endregion
 //#region src/components/AnalyzeForm.vue
-var { createElementVNode: _createElementVNode$2, toDisplayString: _toDisplayString$2, createTextVNode: _createTextVNode$3, resolveComponent: _resolveComponent$3, withCtx: _withCtx$3, openBlock: _openBlock$3, createBlock: _createBlock$3, createCommentVNode: _createCommentVNode$2, withKeys: _withKeys, createVNode: _createVNode$3, Fragment: _Fragment$1, createElementBlock: _createElementBlock$1 } = await importShared("vue");
+var { createElementVNode: _createElementVNode$3, toDisplayString: _toDisplayString$2, createTextVNode: _createTextVNode$3, resolveComponent: _resolveComponent$3, withCtx: _withCtx$3, openBlock: _openBlock$3, createBlock: _createBlock$3, createCommentVNode: _createCommentVNode$2, withKeys: _withKeys, createVNode: _createVNode$3, Fragment: _Fragment$1, createElementBlock: _createElementBlock$1 } = await importShared("vue");
 var _hoisted_1$1 = { class: "mt-2" };
 var _hoisted_2$1 = { class: "text-caption text-medium-emphasis mt-1" };
 var { ref: ref$3 } = await importShared("vue");
@@ -1006,7 +1006,7 @@ var _sfc_main$3 = {
 				_createVNode$3(_component_v_card, { flat: "" }, {
 					default: _withCtx$3(() => [_createVNode$3(_component_v_card_text, null, {
 						default: _withCtx$3(() => [
-							_cache[7] || (_cache[7] = _createElementVNode$2("p", { class: "text-body-2 text-medium-emphasis mb-4" }, " Paste a GitHub repository URL. Claude will look at its README, Dockerfile, and any Compose file to build a MOS template, resolve an icon, and let you review it before installing. ", -1)),
+							_cache[7] || (_cache[7] = _createElementVNode$3("p", { class: "text-body-2 text-medium-emphasis mb-4" }, " Paste a GitHub repository URL. Claude will look at its README, Dockerfile, and any Compose file to build a MOS template, resolve an icon, and let you review it before installing. ", -1)),
 							error.value ? (_openBlock$3(), _createBlock$3(_component_v_alert, {
 								key: 0,
 								type: "error",
@@ -1025,8 +1025,8 @@ var _sfc_main$3 = {
 								disabled: analyzing.value,
 								onKeyup: _withKeys(analyze, ["enter"])
 							}, null, 8, ["modelValue", "disabled"]),
-							_createElementVNode$2("div", _hoisted_1$1, [
-								_cache[6] || (_cache[6] = _createElementVNode$2("div", { class: "text-body-2 text-medium-emphasis mb-1" }, "Template scope", -1)),
+							_createElementVNode$3("div", _hoisted_1$1, [
+								_cache[6] || (_cache[6] = _createElementVNode$3("div", { class: "text-body-2 text-medium-emphasis mb-1" }, "Template scope", -1)),
 								_createVNode$3(_component_v_btn_toggle, {
 									modelValue: scope.value,
 									"onUpdate:modelValue": _cache[1] || (_cache[1] = ($event) => scope.value = $event),
@@ -1046,7 +1046,7 @@ var _sfc_main$3 = {
 									})]),
 									_: 1
 								}, 8, ["modelValue", "disabled"]),
-								_createElementVNode$2("div", _hoisted_2$1, _toDisplayString$2(scope.value === "required" ? "Only what's needed to run - fewer fields, but you may need to add something back later." : "Every setting found in the repo's docs - a longer list you can freely delete from."), 1)
+								_createElementVNode$3("div", _hoisted_2$1, _toDisplayString$2(scope.value === "required" ? "Only what's needed to run - fewer fields, but you may need to add something back later." : "Every setting found in the repo's docs - a longer list you can freely delete from."), 1)
 							])
 						]),
 						_: 1
@@ -1085,7 +1085,7 @@ var _sfc_main$3 = {
 };
 //#endregion
 //#region src/components/HistoryList.vue
-var { toDisplayString: _toDisplayString$1, createTextVNode: _createTextVNode$2, resolveComponent: _resolveComponent$2, withCtx: _withCtx$2, openBlock: _openBlock$2, createBlock: _createBlock$2, createCommentVNode: _createCommentVNode$1, createVNode: _createVNode$2, createElementBlock: _createElementBlock, renderList: _renderList, Fragment: _Fragment, createElementVNode: _createElementVNode$1 } = await importShared("vue");
+var { toDisplayString: _toDisplayString$1, createTextVNode: _createTextVNode$2, resolveComponent: _resolveComponent$2, withCtx: _withCtx$2, openBlock: _openBlock$2, createBlock: _createBlock$2, createCommentVNode: _createCommentVNode$1, createVNode: _createVNode$2, createElementBlock: _createElementBlock, renderList: _renderList, Fragment: _Fragment, createElementVNode: _createElementVNode$2 } = await importShared("vue");
 var _hoisted_1 = {
 	key: 1,
 	class: "d-flex justify-center py-8"
@@ -1206,7 +1206,7 @@ var _sfc_main$2 = {
 											default: _withCtx$2(() => [_createTextVNode$2(_toDisplayString$1(entry.scope === "all" ? "All settings" : "Required only"), 1)]),
 											_: 2
 										}, 1024),
-										_createElementVNode$1("span", _hoisted_3, _toDisplayString$1(formatDate(entry.analyzed_at)), 1)
+										_createElementVNode$2("span", _hoisted_3, _toDisplayString$1(formatDate(entry.analyzed_at)), 1)
 									]),
 									_: 2
 								}, 1024)]),
@@ -1235,7 +1235,7 @@ var _sfc_main$2 = {
 };
 //#endregion
 //#region src/components/SettingsForm.vue
-var { toDisplayString: _toDisplayString, createTextVNode: _createTextVNode$1, resolveComponent: _resolveComponent$1, withCtx: _withCtx$1, openBlock: _openBlock$1, createBlock: _createBlock$1, createCommentVNode: _createCommentVNode, createVNode: _createVNode$1, createElementVNode: _createElementVNode } = await importShared("vue");
+var { toDisplayString: _toDisplayString, createTextVNode: _createTextVNode$1, resolveComponent: _resolveComponent$1, withCtx: _withCtx$1, openBlock: _openBlock$1, createBlock: _createBlock$1, createCommentVNode: _createCommentVNode, createVNode: _createVNode$1, createElementVNode: _createElementVNode$1 } = await importShared("vue");
 var { reactive, ref: ref$1, watch, onMounted } = await importShared("vue");
 var _sfc_main$1 = {
 	__name: "SettingsForm",
@@ -1380,12 +1380,12 @@ var _sfc_main$1 = {
 											}, {
 												default: _withCtx$1(() => [..._cache[12] || (_cache[12] = [
 													_createTextVNode$1(" Requires a ", -1),
-													_createElementVNode("strong", null, "paid", -1),
+													_createElementVNode$1("strong", null, "paid", -1),
 													_createTextVNode$1(" API key with billing enabled — there is no free tier for API access. In exchange it's the most reliable at following the template schema exactly and rarely needs a retry. Cost is usage-based, typically a few cents per repository analyzed. ", -1)
 												])]),
 												_: 1
 											}),
-											_cache[13] || (_cache[13] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-3" }, [_createElementVNode("strong", null, "Setup:"), _createTextVNode$1(" sign in at console.anthropic.com → add billing/credits → API Keys → Create Key → paste it below. ")], -1)),
+											_cache[13] || (_cache[13] = _createElementVNode$1("div", { class: "text-caption text-medium-emphasis mb-3" }, [_createElementVNode$1("strong", null, "Setup:"), _createTextVNode$1(" sign in at console.anthropic.com → add billing/credits → API Keys → Create Key → paste it below. ")], -1)),
 											_createVNode$1(_component_v_text_field, {
 												modelValue: form.anthropic.api_key,
 												"onUpdate:modelValue": _cache[1] || (_cache[1] = ($event) => form.anthropic.api_key = $event),
@@ -1428,7 +1428,7 @@ var _sfc_main$1 = {
 												default: _withCtx$1(() => [..._cache[16] || (_cache[16] = [_createTextVNode$1(" Google AI Studio issues real API keys with a genuinely free tier — no billing required for typical personal use. The tradeoff: free-tier requests are rate-limited (fewer analyses per minute/day), and Gemini is somewhat less consistent than Claude at holding together this exact JSON schema on the first try. ", -1)])]),
 												_: 1
 											}),
-											_cache[17] || (_cache[17] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-3" }, [_createElementVNode("strong", null, "Setup:"), _createTextVNode$1(" go to aistudio.google.com → sign in with a Google account → \"Get API key\" → \"Create API key\" → paste it below. ")], -1)),
+											_cache[17] || (_cache[17] = _createElementVNode$1("div", { class: "text-caption text-medium-emphasis mb-3" }, [_createElementVNode$1("strong", null, "Setup:"), _createTextVNode$1(" go to aistudio.google.com → sign in with a Google account → \"Get API key\" → \"Create API key\" → paste it below. ")], -1)),
 											_createVNode$1(_component_v_text_field, {
 												modelValue: form.gemini.api_key,
 												"onUpdate:modelValue": _cache[3] || (_cache[3] = ($event) => form.gemini.api_key = $event),
@@ -1471,10 +1471,10 @@ var _sfc_main$1 = {
 												default: _withCtx$1(() => [..._cache[20] || (_cache[20] = [_createTextVNode$1(" Completely free and private — no API key, nothing leaves your network. The tradeoff: it's noticeably slower than a cloud API (especially without a GPU), and small local models are less reliable at producing this whole schema correctly in one shot. A slow model can also exceed MOS's 60-second query timeout, in which case the analysis just fails. ", -1)])]),
 												_: 1
 											}),
-											_cache[21] || (_cache[21] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-3" }, [
-												_createElementVNode("strong", null, "Setup:"),
+											_cache[21] || (_cache[21] = _createElementVNode$1("div", { class: "text-caption text-medium-emphasis mb-3" }, [
+												_createElementVNode$1("strong", null, "Setup:"),
 												_createTextVNode$1(" install Ollama (ollama.com) on a machine reachable from this MOS host → run "),
-												_createElementVNode("code", null, "ollama pull llama3.1"),
+												_createElementVNode$1("code", null, "ollama pull llama3.1"),
 												_createTextVNode$1(" (or another model) → make sure its API port (default 11434) is reachable from this host → set the host/model below. ")
 											], -1)),
 											_createVNode$1(_component_v_text_field, {
@@ -1528,13 +1528,14 @@ var _sfc_main$1 = {
 };
 //#endregion
 //#region src/Plugin.vue
-var { createTextVNode: _createTextVNode, resolveComponent: _resolveComponent, withCtx: _withCtx, createVNode: _createVNode, openBlock: _openBlock, createBlock: _createBlock } = await importShared("vue");
+var { createElementVNode: _createElementVNode, createTextVNode: _createTextVNode, resolveComponent: _resolveComponent, withCtx: _withCtx, createVNode: _createVNode, openBlock: _openBlock, createBlock: _createBlock } = await importShared("vue");
 var { ref } = await importShared("vue");
 var _sfc_main = {
 	__name: "Plugin",
 	setup(__props) {
 		const tab = ref("analyze");
 		return (_ctx, _cache) => {
+			const _component_v_alert = _resolveComponent("v-alert");
 			const _component_v_tab = _resolveComponent("v-tab");
 			const _component_v_tabs = _resolveComponent("v-tabs");
 			const _component_v_window_item = _resolveComponent("v-window-item");
@@ -1544,46 +1545,59 @@ var _sfc_main = {
 				class: "pa-4",
 				color: "transparent"
 			}, {
-				default: _withCtx(() => [_createVNode(_component_v_tabs, {
-					modelValue: tab.value,
-					"onUpdate:modelValue": _cache[0] || (_cache[0] = ($event) => tab.value = $event),
-					class: "mb-4"
-				}, {
-					default: _withCtx(() => [
-						_createVNode(_component_v_tab, { value: "analyze" }, {
-							default: _withCtx(() => [..._cache[2] || (_cache[2] = [_createTextVNode("Analyze", -1)])]),
-							_: 1
-						}),
-						_createVNode(_component_v_tab, { value: "history" }, {
-							default: _withCtx(() => [..._cache[3] || (_cache[3] = [_createTextVNode("History", -1)])]),
-							_: 1
-						}),
-						_createVNode(_component_v_tab, { value: "settings" }, {
-							default: _withCtx(() => [..._cache[4] || (_cache[4] = [_createTextVNode("Settings", -1)])]),
-							_: 1
-						})
-					]),
-					_: 1
-				}, 8, ["modelValue"]), _createVNode(_component_v_window, {
-					modelValue: tab.value,
-					"onUpdate:modelValue": _cache[1] || (_cache[1] = ($event) => tab.value = $event)
-				}, {
-					default: _withCtx(() => [
-						_createVNode(_component_v_window_item, { value: "analyze" }, {
-							default: _withCtx(() => [_createVNode(_sfc_main$3)]),
-							_: 1
-						}),
-						_createVNode(_component_v_window_item, { value: "history" }, {
-							default: _withCtx(() => [_createVNode(_sfc_main$2)]),
-							_: 1
-						}),
-						_createVNode(_component_v_window_item, { value: "settings" }, {
-							default: _withCtx(() => [_createVNode(_sfc_main$1)]),
-							_: 1
-						})
-					]),
-					_: 1
-				}, 8, ["modelValue"])]),
+				default: _withCtx(() => [
+					_createVNode(_component_v_alert, {
+						type: "warning",
+						variant: "tonal",
+						density: "compact",
+						icon: "mdi-alert-outline",
+						class: "mb-4"
+					}, {
+						default: _withCtx(() => [..._cache[2] || (_cache[2] = [_createElementVNode("strong", null, "Use at your own risk.", -1), _createTextVNode(" AI-generated templates can be wrong — a misread port, an invented path, a variable that isn't actually optional. Review every field and check the project's own documentation before clicking Install. ", -1)])]),
+						_: 1
+					}),
+					_createVNode(_component_v_tabs, {
+						modelValue: tab.value,
+						"onUpdate:modelValue": _cache[0] || (_cache[0] = ($event) => tab.value = $event),
+						class: "mb-4"
+					}, {
+						default: _withCtx(() => [
+							_createVNode(_component_v_tab, { value: "analyze" }, {
+								default: _withCtx(() => [..._cache[3] || (_cache[3] = [_createTextVNode("Analyze", -1)])]),
+								_: 1
+							}),
+							_createVNode(_component_v_tab, { value: "history" }, {
+								default: _withCtx(() => [..._cache[4] || (_cache[4] = [_createTextVNode("History", -1)])]),
+								_: 1
+							}),
+							_createVNode(_component_v_tab, { value: "settings" }, {
+								default: _withCtx(() => [..._cache[5] || (_cache[5] = [_createTextVNode("Settings", -1)])]),
+								_: 1
+							})
+						]),
+						_: 1
+					}, 8, ["modelValue"]),
+					_createVNode(_component_v_window, {
+						modelValue: tab.value,
+						"onUpdate:modelValue": _cache[1] || (_cache[1] = ($event) => tab.value = $event)
+					}, {
+						default: _withCtx(() => [
+							_createVNode(_component_v_window_item, { value: "analyze" }, {
+								default: _withCtx(() => [_createVNode(_sfc_main$3)]),
+								_: 1
+							}),
+							_createVNode(_component_v_window_item, { value: "history" }, {
+								default: _withCtx(() => [_createVNode(_sfc_main$2)]),
+								_: 1
+							}),
+							_createVNode(_component_v_window_item, { value: "settings" }, {
+								default: _withCtx(() => [_createVNode(_sfc_main$1)]),
+								_: 1
+							})
+						]),
+						_: 1
+					}, 8, ["modelValue"])
+				]),
 				_: 1
 			});
 		};
