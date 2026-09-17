@@ -73,6 +73,9 @@ jobs:
           cp bin/ai-template-maker-analyze "deb-build/usr/bin/plugins/${PLUGIN_NAME}-analyze"
           chmod 755 "deb-build/usr/bin/plugins/${PLUGIN_NAME}-analyze"
 
+          cp bin/ai-template-maker-history "deb-build/usr/bin/plugins/${PLUGIN_NAME}-history"
+          chmod 755 "deb-build/usr/bin/plugins/${PLUGIN_NAME}-history"
+
           cp -r staticfiles/. "$web_dir/"
           find "$web_dir" -type f -exec chmod 644 {} \;
           find "$web_dir" -type d -exec chmod 755 {} \;

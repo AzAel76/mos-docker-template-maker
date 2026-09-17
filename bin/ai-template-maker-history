@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Invoked via MOS's synchronous plugin query endpoint:
+#   POST /mos/plugins/query {command:"ai-template-maker-history", args:[op], parse_json:true}
+# op: "list" (default) - print the stored history array, newest first.
+#     "clear" - reset history to an empty array, then print it.
+# Must live at /usr/bin/plugins/ai-template-maker-history on the MOS host
+# (installed there alongside ai-template-maker-analyze, which is what
+# actually appends entries - see its append_history()).
+#
+# Always exits 0 and prints {"error":"..."} on failure, same convention as
+# ai-template-maker-analyze (MOS's query executor discards stdout on a
+# non-zero exit).
+set -uo pipefail
+
+PLUGIN_NAME="ai-template-maker"
+HISTORY_FILE="/boot/optional/plugins/${PLUGIN_NAME}/history.json"
+
+fail() {
+  jq -n --arg msg "$1" '{error:$msg}'
+  exit 0
+}
+
+command -v jq >/dev/null 2>&1 || fail "jq is required on the MOS host"
+
+op="${1:-list}"
+
+case "$op" in
+  list)
+    if [[ -f "$HISTORY_FILE" ]]; then
+      jq -c '.' "$HISTORY_FILE" 2>/dev/null || echo '[]'
+    else
+      echo '[]'
+    fi
+    ;;
+  clear)
+    mkdir -p "$(dirname "$HISTORY_FILE")" 2>/dev/null || fail "Could not create plugin data directory"
+    echo '[]' > "$HISTORY_FILE" 2>/dev/null || fail "Could not clear history file"
+    echo '[]'
+    ;;
+  *)
+    fail "Unknown operation '${op}' (expected 'list' or 'clear')"
+    ;;
+esac

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Invoked via MOS's synchronous plugin query endpoint:
 #   POST /mos/plugins/query {command:"ai-template-maker-analyze", args:[repoUrl, scope], parse_json:true}
-#   scope is "all" (default - every setting found, comprehensive) or
-#   "required" (only what's needed for the app to run).
+#   scope is "required" (default - only what's needed for the app to run) or
+#   "all" (every setting found, comprehensive).
 # Must live at /usr/bin/plugins/ai-template-maker-analyze on the MOS host
 # (installed there by the plugin's `functions` install() hook).
 #
@@ -22,6 +22,7 @@ set -uo pipefail
 
 PLUGIN_NAME="ai-template-maker"
 SETTINGS_FILE="/boot/optional/plugins/${PLUGIN_NAME}/settings.json"
+HISTORY_FILE="/boot/optional/plugins/${PLUGIN_NAME}/history.json"
 
 fail() {
   jq -n --arg msg "$1" '{error:$msg}'
@@ -34,7 +35,7 @@ command -v curl >/dev/null 2>&1 || { echo '{"error":"curl is required on the MOS
 repo_url="${1:-}"
 [[ -n "$repo_url" ]] || fail "A repository URL is required"
 
-scope="${2:-all}"
+scope="${2:-required}"
 case "$scope" in
   all|required) ;;
   *) fail "Invalid scope '${scope}' (expected 'all' or 'required')" ;;
@@ -42,7 +43,10 @@ esac
 
 # ---------------------------------------------------------------------------
 # Settings: env vars win (used for standalone/manual testing), then
-# settings.json written by the plugin's Settings tab.
+# settings.json written by the plugin's Settings tab. Each provider keeps
+# its own config block (settings.json: {provider, anthropic:{...},
+# gemini:{...}, ollama:{...}, github_token}) so switching the default
+# provider doesn't clobber the other providers' saved keys.
 # ---------------------------------------------------------------------------
 provider="${MOS_TEMPLATE_MAKER_PROVIDER:-}"
 api_key="${ANTHROPIC_API_KEY:-${GEMINI_API_KEY:-}}"
@@ -52,12 +56,26 @@ ollama_host="${OLLAMA_HOST:-}"
 
 if [[ -f "$SETTINGS_FILE" ]]; then
   [[ -z "$provider" ]] && provider=$(jq -r '.provider // empty' "$SETTINGS_FILE" 2>/dev/null)
-  [[ -z "$api_key" ]] && api_key=$(jq -r '.api_key // empty' "$SETTINGS_FILE" 2>/dev/null)
-  [[ -z "$model" ]] && model=$(jq -r '.model // empty' "$SETTINGS_FILE" 2>/dev/null)
   [[ -z "$github_token" ]] && github_token=$(jq -r '.github_token // empty' "$SETTINGS_FILE" 2>/dev/null)
-  [[ -z "$ollama_host" ]] && ollama_host=$(jq -r '.ollama_host // empty' "$SETTINGS_FILE" 2>/dev/null)
 fi
 provider="${provider:-anthropic}"
+
+if [[ -f "$SETTINGS_FILE" ]]; then
+  case "$provider" in
+    anthropic)
+      [[ -z "$api_key" ]] && api_key=$(jq -r '.anthropic.api_key // empty' "$SETTINGS_FILE" 2>/dev/null)
+      [[ -z "$model" ]] && model=$(jq -r '.anthropic.model // empty' "$SETTINGS_FILE" 2>/dev/null)
+      ;;
+    gemini)
+      [[ -z "$api_key" ]] && api_key=$(jq -r '.gemini.api_key // empty' "$SETTINGS_FILE" 2>/dev/null)
+      [[ -z "$model" ]] && model=$(jq -r '.gemini.model // empty' "$SETTINGS_FILE" 2>/dev/null)
+      ;;
+    ollama)
+      [[ -z "$model" ]] && model=$(jq -r '.ollama.model // empty' "$SETTINGS_FILE" 2>/dev/null)
+      [[ -z "$ollama_host" ]] && ollama_host=$(jq -r '.ollama.host // empty' "$SETTINGS_FILE" 2>/dev/null)
+      ;;
+  esac
+fi
 
 case "$provider" in
   anthropic) model="${model:-claude-sonnet-5}" ;;
@@ -407,6 +425,33 @@ sanitize_name() {
   echo "${slug:-app}"
 }
 
+# ---------------------------------------------------------------------------
+# History: best-effort append of {repo, url, mode, scope, analyzed_at} to
+# HISTORY_FILE, newest first, capped at 100 entries. Never fails the
+# analysis itself - the Analyze tab's whole point still worked even if this
+# didn't. flock guards the read-modify-write against a second concurrent
+# analyze call; bin/ai-template-maker-history serves this file back to the
+# frontend's History tab.
+# ---------------------------------------------------------------------------
+append_history() {
+  local repo="$1" mode="$2" scope="$3" url="$4"
+  local hist_dir=""
+  hist_dir=$(dirname "$HISTORY_FILE")
+  mkdir -p "$hist_dir" 2>/dev/null || return 0
+  [[ -f "$HISTORY_FILE" ]] || echo '[]' > "$HISTORY_FILE" 2>/dev/null || return 0
+  (
+    flock -w 5 -x 200 || exit 0
+    local entry current updated
+    entry=$(jq -n --arg repo "$repo" --arg url "$url" --arg mode "$mode" --arg scope "$scope" \
+      --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{repo:$repo, url:$url, mode:$mode, scope:$scope, analyzed_at:$at}')
+    current=$(cat "$HISTORY_FILE" 2>/dev/null)
+    jq empty <<<"$current" >/dev/null 2>&1 || current='[]'
+    updated=$(jq --argjson entry "$entry" '[$entry] + . | .[0:100]' <<<"$current" 2>/dev/null)
+    [[ -n "$updated" ]] && echo "$updated" > "$HISTORY_FILE"
+  ) 200>"${HISTORY_FILE}.lock" 2>/dev/null
+}
+
 mode=$(echo "$json_text" | jq -r '.mode // "docker"')
 if [[ "$mode" == "compose" ]]; then
   raw_name=$(echo "$json_text" | jq -r '.name // "app"')
@@ -414,7 +459,7 @@ if [[ "$mode" == "compose" ]]; then
   json_text=$(echo "$json_text" | jq --arg name "$safe_name" '.name = $name')
   app_name=$(echo "$json_text" | jq -r '.template.name // .name')
   icon_url=$(resolve_icon "$app_name")
-  echo "$json_text" | jq --arg icon "${icon_url:-}" '.template.icon = $icon'
+  final_json=$(echo "$json_text" | jq --arg icon "${icon_url:-}" '.template.icon = $icon')
 else
   # Wrap bare docker-shaped output for consistency, in case the model
   # omitted the {"mode":"docker","docker":{...}} envelope.
@@ -427,5 +472,8 @@ else
   json_text=$(echo "$json_text" | jq --arg name "$safe_name" '.docker.name = $name')
   app_name=$(echo "$json_text" | jq -r '.docker.name')
   icon_url=$(resolve_icon "$app_name")
-  echo "$json_text" | jq --arg icon "${icon_url:-}" '.docker.icon = $icon'
+  final_json=$(echo "$json_text" | jq --arg icon "${icon_url:-}" '.docker.icon = $icon')
 fi
+
+append_history "$owner_repo" "$mode" "$scope" "$repo_url"
+echo "$final_json"

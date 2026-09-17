@@ -1,7 +1,16 @@
 {
   "provider": "anthropic",
-  "api_key": "",
-  "model": "claude-sonnet-5",
-  "ollama_host": "http://localhost:11434",
+  "anthropic": {
+    "api_key": "",
+    "model": "claude-sonnet-5"
+  },
+  "gemini": {
+    "api_key": "",
+    "model": "gemini-2.5-flash"
+  },
+  "ollama": {
+    "host": "http://localhost:11434",
+    "model": "llama3.1"
+  },
   "github_token": ""
 }
