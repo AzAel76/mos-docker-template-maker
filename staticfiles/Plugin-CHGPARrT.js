@@ -161,6 +161,7 @@ async function request(path, { method = "GET", body } = {}) {
 	return data;
 }
 var PLUGIN_NAME = "ai-template-maker";
+var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 var mosClient = {
 	getSettings() {
 		return request(`/mos/plugins/settings/${PLUGIN_NAME}`);
@@ -171,21 +172,48 @@ var mosClient = {
 			body: settings
 		});
 	},
-	async analyzeRepo(repoUrl, { timeout = 60, scope = "required" } = {}) {
-		const res = await request("/mos/plugins/query", {
+	async analyzeRepo(repoUrl, { scope = "required", pollIntervalMs = 2500, maxWaitMs = 6e5, signal, onTick } = {}) {
+		const startRes = await request("/mos/plugins/query", {
 			method: "POST",
 			body: {
-				command: "ai-template-maker-analyze",
+				command: "ai-template-maker-analyze-start",
 				args: [repoUrl, scope],
-				timeout: Math.min(timeout, 60),
+				timeout: 15,
 				parse_json: true
 			}
 		});
-		if (res.timed_out) throw new Error(`Analysis timed out after ${res.duration_ms}ms (60s max)`);
-		if (!res.success) throw new Error(typeof res.output === "string" ? res.output : `Analysis failed (exit ${res.exit_code})`);
-		if (res.output && typeof res.output === "object" && res.output.error) throw new Error(res.output.error);
-		if (typeof res.output !== "object") throw new Error("Analysis script did not return valid JSON");
-		return res.output;
+		if (!startRes.success) throw new Error(typeof startRes.output === "string" ? startRes.output : `Could not start analysis (exit ${startRes.exit_code})`);
+		if (startRes.output?.error) throw new Error(startRes.output.error);
+		const jobId = startRes.output?.job_id;
+		if (!jobId) throw new Error("Could not start analysis (no job id returned)");
+		const deadline = Date.now() + maxWaitMs;
+		for (;;) {
+			if (signal?.aborted) throw new DOMException("Analysis cancelled", "AbortError");
+			if (Date.now() > deadline) throw new Error(`Still running after ${Math.round(maxWaitMs / 6e4)} minutes - it may finish in the background on a slow local model; check the History tab shortly, or try again with a faster provider.`);
+			await sleep(pollIntervalMs);
+			onTick?.();
+			const statusRes = await request("/mos/plugins/query", {
+				method: "POST",
+				body: {
+					command: "ai-template-maker-analyze-status",
+					args: [jobId],
+					timeout: 15,
+					parse_json: true
+				}
+			});
+			if (!statusRes.success) throw new Error(typeof statusRes.output === "string" ? statusRes.output : `Could not check analysis status (exit ${statusRes.exit_code})`);
+			const out = statusRes.output;
+			if (out?.error) throw new Error(out.error);
+			if (out?.status === "running") continue;
+			if (out?.status === "error") throw new Error(out.error || "Analysis failed");
+			if (out?.status === "done") {
+				const result = out.result;
+				if (result && typeof result === "object" && result.error) throw new Error(result.error);
+				if (!result || typeof result !== "object") throw new Error("Analysis script did not return valid JSON");
+				return result;
+			}
+			throw new Error("Unexpected response while checking analysis status");
+		}
 	},
 	createContainer(template) {
 		return request("/docker/mos/create", {
@@ -246,7 +274,7 @@ var _hoisted_1$2 = { class: "text-h6" };
 var _hoisted_2$2 = { class: "text-caption text-medium-emphasis" };
 var _hoisted_3$1 = { class: "mb-4" };
 var _hoisted_4 = { class: "mb-4" };
-var { computed, ref: ref$4, watch: watch$1 } = await importShared("vue");
+var { computed: computed$1, ref: ref$4, watch: watch$1 } = await importShared("vue");
 var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 	__name: "InstallDialog",
 	props: {
@@ -263,7 +291,7 @@ var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 	setup(__props, { emit: __emit }) {
 		const props = __props;
 		const emit = __emit;
-		const open = computed({
+		const open = computed$1({
 			get: () => props.modelValue,
 			set: (v) => emit("update:modelValue", v)
 		});
@@ -298,16 +326,16 @@ var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 				local.value.no_autoupdate ??= false;
 			}
 		}, { immediate: true });
-		const displayName = computed(() => (mode.value === "compose" ? local.value?.name : local.value?.name) || "");
-		const icon = computed({
+		const displayName = computed$1(() => (mode.value === "compose" ? local.value?.name : local.value?.name) || "");
+		const icon = computed$1({
 			get: () => (mode.value === "compose" ? local.value?.template?.icon : local.value?.icon) || "",
 			set: (v) => {
 				if (mode.value === "compose") local.value.template.icon = v;
 				else local.value.icon = v;
 			}
 		});
-		const category = computed(() => mode.value === "compose" ? local.value?.template?.category?.[0] : null);
-		const description = computed({
+		const category = computed$1(() => mode.value === "compose" ? local.value?.template?.category?.[0] : null);
+		const description = computed$1({
 			get: () => (mode.value === "compose" ? local.value?.template?.description : local.value?.description) || "",
 			set: (v) => {
 				if (mode.value === "compose") local.value.template.description = v;
@@ -964,7 +992,7 @@ var InstallDialog_default = /*#__PURE__*/ _plugin_vue_export_helper_default({
 var { createElementVNode: _createElementVNode$3, toDisplayString: _toDisplayString$2, createTextVNode: _createTextVNode$3, resolveComponent: _resolveComponent$3, withCtx: _withCtx$3, openBlock: _openBlock$3, createBlock: _createBlock$3, createCommentVNode: _createCommentVNode$2, withKeys: _withKeys, createVNode: _createVNode$3, Fragment: _Fragment$1, createElementBlock: _createElementBlock$1 } = await importShared("vue");
 var _hoisted_1$1 = { class: "mt-2" };
 var _hoisted_2$1 = { class: "text-caption text-medium-emphasis mt-1" };
-var { ref: ref$3 } = await importShared("vue");
+var { ref: ref$3, computed } = await importShared("vue");
 var _sfc_main$3 = {
 	__name: "AnalyzeForm",
 	setup(__props) {
@@ -975,18 +1003,34 @@ var _sfc_main$3 = {
 		const result = ref$3(null);
 		const dialogOpen = ref$3(false);
 		const showInstalledSnackbar = ref$3(false);
+		const elapsedSeconds = ref$3(0);
+		const elapsedLabel = computed(() => elapsedSeconds.value > 0 ? ` (${elapsedSeconds.value}s)` : "");
+		let controller = null;
 		async function analyze() {
 			analyzing.value = true;
 			error.value = "";
+			elapsedSeconds.value = 0;
+			controller = new AbortController();
+			const startedAt = Date.now();
 			try {
-				const data = await mosClient.analyzeRepo(repoUrl.value.trim(), { scope: scope.value });
+				const data = await mosClient.analyzeRepo(repoUrl.value.trim(), {
+					scope: scope.value,
+					signal: controller.signal,
+					onTick: () => {
+						elapsedSeconds.value = Math.round((Date.now() - startedAt) / 1e3);
+					}
+				});
 				result.value = data;
 				dialogOpen.value = true;
 			} catch (e) {
-				error.value = e.message;
+				if (e.name !== "AbortError") error.value = e.message;
 			} finally {
 				analyzing.value = false;
+				controller = null;
 			}
+		}
+		function cancel() {
+			controller?.abort();
 		}
 		function onInstalled() {
 			dialogOpen.value = false;
@@ -1025,6 +1069,16 @@ var _sfc_main$3 = {
 								disabled: analyzing.value,
 								onKeyup: _withKeys(analyze, ["enter"])
 							}, null, 8, ["modelValue", "disabled"]),
+							analyzing.value ? (_openBlock$3(), _createBlock$3(_component_v_alert, {
+								key: 1,
+								type: "info",
+								variant: "tonal",
+								density: "compact",
+								class: "mt-2"
+							}, {
+								default: _withCtx$3(() => [_createTextVNode$3(" Analyzing" + _toDisplayString$2(elapsedLabel.value) + " — a local Ollama model can take several minutes with no GPU; this keeps waiting until it finishes. ", 1)]),
+								_: 1
+							})) : _createCommentVNode$2("", true),
 							_createElementVNode$3("div", _hoisted_1$1, [
 								_cache[6] || (_cache[6] = _createElementVNode$3("div", { class: "text-body-2 text-medium-emphasis mb-1" }, "Template scope", -1)),
 								_createVNode$3(_component_v_btn_toggle, {
@@ -1051,15 +1105,26 @@ var _sfc_main$3 = {
 						]),
 						_: 1
 					}), _createVNode$3(_component_v_card_actions, null, {
-						default: _withCtx$3(() => [_createVNode$3(_component_v_spacer), _createVNode$3(_component_v_btn, {
-							color: "primary",
-							loading: analyzing.value,
-							disabled: !repoUrl.value,
-							onClick: analyze
-						}, {
-							default: _withCtx$3(() => [..._cache[8] || (_cache[8] = [_createTextVNode$3(" Analyze ", -1)])]),
-							_: 1
-						}, 8, ["loading", "disabled"])]),
+						default: _withCtx$3(() => [
+							_createVNode$3(_component_v_spacer),
+							analyzing.value ? (_openBlock$3(), _createBlock$3(_component_v_btn, {
+								key: 0,
+								variant: "text",
+								onClick: cancel
+							}, {
+								default: _withCtx$3(() => [..._cache[8] || (_cache[8] = [_createTextVNode$3("Cancel", -1)])]),
+								_: 1
+							})) : _createCommentVNode$2("", true),
+							_createVNode$3(_component_v_btn, {
+								color: "primary",
+								loading: analyzing.value,
+								disabled: !repoUrl.value,
+								onClick: analyze
+							}, {
+								default: _withCtx$3(() => [..._cache[9] || (_cache[9] = [_createTextVNode$3(" Analyze ", -1)])]),
+								_: 1
+							}, 8, ["loading", "disabled"])
+						]),
 						_: 1
 					})]),
 					_: 1
@@ -1076,7 +1141,7 @@ var _sfc_main$3 = {
 					color: "success",
 					timeout: "4000"
 				}, {
-					default: _withCtx$3(() => [..._cache[9] || (_cache[9] = [_createTextVNode$3(" Installed — check the Docker overview. ", -1)])]),
+					default: _withCtx$3(() => [..._cache[10] || (_cache[10] = [_createTextVNode$3(" Installed — check the Docker overview. ", -1)])]),
 					_: 1
 				}, 8, ["modelValue"])
 			], 64);
