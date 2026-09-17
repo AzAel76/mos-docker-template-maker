@@ -93,6 +93,9 @@ fi
 # ---------------------------------------------------------------------------
 owner_repo=$(echo "$repo_url" | sed -E 's#^https?://(www\.)?github\.com/([^/]+/[^/]+?)(\.git)?/?$#\2#')
 [[ "$owner_repo" != "$repo_url" && "$owner_repo" == */* ]] || fail "Could not parse a GitHub owner/repo from: $repo_url"
+# Canonical form, independent of how the user typed the input (trailing
+# slash, .git suffix, www.) - used for the OCI source label below.
+repo_full_url="https://github.com/${owner_repo}"
 
 gh_auth=()
 [[ -n "$github_token" ]] && gh_auth=(-H "Authorization: Bearer $github_token")
@@ -175,7 +178,7 @@ compose_schema_example=$(cat <<'EOF'
 {
   "mode": "compose",
   "name": "immich",
-  "yaml": "services:\n  immich-server:\n    image: ghcr.io/immich-app/immich-server:release\n    ports:\n      - \"2283:2283\"\n    volumes:\n      - ./immich-server/upload:/usr/src/app/upload\n  immich-redis:\n    image: redis:6.2-alpine\n    volumes:\n      - ./immich-redis/data:/data\n",
+  "yaml": "services:\n  immich-server:\n    image: ghcr.io/immich-app/immich-server:release\n    ports:\n      - \"2283:2283\"\n    volumes:\n      - ./immich-server/upload:/usr/src/app/upload\n    labels:\n      org.opencontainers.image.source: https://github.com/immich-app/immich\n  immich-redis:\n    image: redis:6.2-alpine\n    volumes:\n      - ./immich-redis/data:/data\n",
   "env": "TZ=UTC\nDB_PASSWORD=changeme\n",
   "template": {
     "name": "Immich",
@@ -199,12 +202,20 @@ self-hosted service running with the least amount of setup: it should
 include only what the app actually needs to start - required variables,
 its essential config/data paths, its main service port(s) - and leave out
 everything optional or advanced, even if the docs mention it."
-  scope_rule="- Include ONLY variables/paths/ports that are required for the
-  app to run: the docs mark them Required, or the app has no usable default
-  and won't start without them. Omit optional/advanced ones entirely - the
-  goal here is the smallest working template, not an exhaustive one. A
-  short list is correct here; don't pad it out with anything the app can
-  run without."
+  scope_rule="- Include ONLY paths/ports that are required for the app to
+  run: the docs mark them Required, or the app has no usable default and
+  won't start without them. Omit optional/advanced ones entirely - the
+  goal here is the smallest working template, not an exhaustive one.
+  Variables follow a mode-specific rule instead of plain omission:
+  - docker mode: omit optional/advanced entries from the \"variables\"
+    array entirely, same as paths/ports above - there's no way to
+    represent an inactive-but-present entry there.
+  - compose mode: do NOT omit optional/advanced variables from \"env\".
+    Include them as commented-out lines instead - a leading \"#\" before
+    the same key and its example/default value, e.g.
+    \"#REDIS_PASSWORD=changeme\" - so the user can see what exists and
+    uncomment what they need without hunting the docs. Required
+    variables still get normal, uncommented \"KEY=value\" lines."
 else
   scope_purpose="The point of this template is to let someone try out a new
 self-hosted service without typing or copy-pasting config by hand: it
@@ -276,6 +287,20 @@ ${scope_rule}
     for any host path you must invent (e.g. a config volume with no host
     path specified upstream). This placeholder gets rewritten to the
     real configured appdata path automatically.
+- The template must carry a standard OCI image label
+  (https://github.com/opencontainers/image-spec/blob/main/annotations.md)
+  linking back to the project: "org.opencontainers.image.source" set to
+  the exact "Repository URL" given below. In docker mode, do NOT add this
+  yourself - the "labels" array in the output shape is for the app's own
+  labels (if any), and the analyze script adds the source label for you
+  automatically. In compose mode there is no such post-processing, so you
+  must add it directly - but compose has no stack-wide/document-level
+  labels field, only per-service ones, so add a "labels:" section with
+  "org.opencontainers.image.source: <Repository URL>" to exactly ONE
+  service: the primary one actually running the application (e.g.
+  "immich-server" in the example below), never to sidecars like a
+  database or cache (e.g. not "immich-redis"). One label for the whole
+  stack, not one per service.
 - web_ui_url / webui must use the literal placeholder tokens shown in the
   examples ([IP], [PORT:xxxx], {IP}) - do not guess a real IP. Use the
   container port (not the example host port) in [PORT:xxxx].
@@ -286,6 +311,7 @@ EOF
 
 user_content=$(cat <<EOF
 Repository: ${owner_repo}
+Repository URL: ${repo_full_url}
 
 README (may be truncated):
 ${readme_t}
@@ -469,6 +495,20 @@ remap_appdata_paths() {
   ')
 }
 
+# Standard OCI image annotation for "URL to get source code for building the
+# image" (https://github.com/opencontainers/image-spec/blob/main/annotations.md)
+# - added deterministically rather than trusting the model with the URL, since
+# we already know it exactly. Idempotent: drops any entry the model added
+# under this key first, so re-running never duplicates it.
+add_source_label() {
+  json_text=$(echo "$json_text" | jq --arg url "$repo_full_url" '
+    .docker.labels = (
+      [{name: "Image Source", key: "org.opencontainers.image.source", value: $url, mask: false, description: "Links back to the GitHub repository this template was generated from."}]
+      + ((.docker.labels // []) | map(select(.key != "org.opencontainers.image.source")))
+    )
+  ')
+}
+
 # ---------------------------------------------------------------------------
 # History: best-effort append of {repo, url, mode, scope, analyzed_at} to
 # HISTORY_FILE, newest first, capped at 100 entries. Never fails the
@@ -515,6 +555,7 @@ else
   safe_name=$(sanitize_name "$raw_name")
   json_text=$(echo "$json_text" | jq --arg name "$safe_name" '.docker.name = $name')
   remap_appdata_paths
+  add_source_label
   app_name=$(echo "$json_text" | jq -r '.docker.name')
   icon_url=$(resolve_icon "$app_name")
   final_json=$(echo "$json_text" | jq --arg icon "${icon_url:-}" '.docker.icon = $icon')

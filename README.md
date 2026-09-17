@@ -6,6 +6,13 @@ MOS app template, resolves an icon from [selfh.st/icons](https://selfh.st/icons/
 [dashboard-icons](https://github.com/homarr-labs/dashboard-icons), and shows a MOS
 Hub-style install dialog before deploying.
 
+> **⚠️ Use at your own risk.** The generated template is a best-effort guess from an
+> LLM reading the repository's docs — it can misread a port, invent a path that isn't
+> actually right, mask a variable that isn't secret, or miss one the app requires. It
+> is not a substitute for reading the project's own documentation. Always review every
+> field in the install dialog, and check the project's docs, before clicking Install —
+> especially for anything exposing ports, mounting host paths, or running privileged.
+
 ## How it works
 
 - **`page/`** — the plugin's Vue 3 + Vuetify 4 UI source, built with `vite-plugin-federation`
