@@ -29,6 +29,18 @@ fail() {
   exit 0
 }
 
+# Pure-bash whitespace trim (no jq-version or external-tool dependency) -
+# applied to every value pulled from settings.json below, since a stray
+# leading/trailing space (easy to introduce via copy-paste into the
+# Settings tab) would otherwise silently break an exact/prefix match, e.g.
+# against Ollama's pulled-model list.
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
 command -v jq >/dev/null 2>&1 || { echo '{"error":"jq is required on the MOS host"}'; exit 0; }
 command -v curl >/dev/null 2>&1 || { echo '{"error":"curl is required on the MOS host"}'; exit 0; }
 
@@ -84,6 +96,11 @@ if [[ -f "$SETTINGS_FILE" ]]; then
       ;;
   esac
 fi
+
+model="$(trim "$model")"
+ollama_host="$(trim "$ollama_host")"
+api_key="$(trim "$api_key")"
+github_token="$(trim "$github_token")"
 
 case "$provider" in
   anthropic) model="${model:-claude-sonnet-5}" ;;
@@ -442,8 +459,11 @@ call_ollama() {
   # own since a real analysis can legitimately take a while on this
   # provider (see ai-template-maker-analyze-start), so an unreachable host
   # would otherwise just hang instead of failing.
-  curl -sf --connect-timeout 5 --max-time 10 "${ollama_host%/}/api/tags" >/dev/null \
-    || fail "Could not reach Ollama at ${ollama_host} - is it running and reachable from the MOS host?"
+  local preflight_err
+  preflight_err=$(curl -sf --connect-timeout 5 --max-time 10 "${ollama_host%/}/api/tags" 2>&1 >/dev/null)
+  local preflight_exit=$?
+  [[ $preflight_exit -eq 0 ]] \
+    || fail "Preflight check failed: could not reach Ollama at ${ollama_host} (curl exit ${preflight_exit}${preflight_err:+: ${preflight_err}}) - is it running and reachable from the MOS host?"
 
   request_body=$(jq -n \
     --arg model "$model" --argjson num_ctx "$ollama_num_ctx" \
@@ -456,11 +476,17 @@ call_ollama() {
       messages: [{role:"system", content:$system}, {role:"user", content:$user}]
     }')
 
+  local request_err_file request_err
+  request_err_file=$(mktemp)
   response=$(curl -sf \
     -H "content-type: application/json" \
     -d "$request_body" \
-    "${ollama_host%/}/api/chat") \
-    || fail "Could not reach Ollama at ${ollama_host} - is it running and reachable from the MOS host?"
+    "${ollama_host%/}/api/chat" 2>"$request_err_file")
+  local request_exit=$?
+  request_err=$(cat "$request_err_file" 2>/dev/null)
+  rm -f "$request_err_file"
+  [[ $request_exit -eq 0 ]] \
+    || fail "Generation request failed: could not reach Ollama at ${ollama_host} (curl exit ${request_exit}${request_err:+: ${request_err}}) - passed the preflight check moments earlier, so this is likely the connection dropping mid-request rather than the host being down outright."
 
   raw_text=$(echo "$response" | jq -r '.message.content // empty')
   [[ -n "$raw_text" ]] || fail "Ollama returned no content: $(echo "$response" | jq -c '.error // .' 2>/dev/null)"

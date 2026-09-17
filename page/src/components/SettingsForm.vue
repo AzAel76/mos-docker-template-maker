@@ -147,13 +147,19 @@ watch(
 async function testOllama() {
   testingOllama.value = true;
   ollamaTestResult.value = null;
+  // Trim before testing, not just before saving - otherwise a stray
+  // leading/trailing space (easy to introduce via copy-paste) makes an
+  // exact-match/prefix check silently fail even when the model is right
+  // there in the "Available" list this same response returns.
+  const host = form.ollama.host.trim();
+  const modelName = form.ollama.model.trim();
   try {
-    const result = await mosClient.testOllamaConnection(form.ollama.host, form.ollama.model);
+    const result = await mosClient.testOllamaConnection(host, modelName);
     if (result.model_found === false) {
       const available = result.models.length ? result.models.join(", ") : "none";
       ollamaTestResult.value = {
         type: "warning",
-        message: `Connected, but "${form.ollama.model}" isn't pulled on that host yet. Available: ${available}.`
+        message: `Connected, but "${modelName}" isn't pulled on that host yet. Available: ${available}.`
       };
     } else {
       ollamaTestResult.value = { type: "success", message: `Connected. ${result.models.length} model(s) available.` };
@@ -185,7 +191,18 @@ async function save() {
   saved.value = false;
   error.value = "";
   try {
-    await mosClient.saveSettings({ ...form });
+    // Trim every text field before persisting - the same stray-whitespace
+    // problem that broke the Ollama model match (see testOllama) applies
+    // just as easily to a pasted API key or host.
+    const payload = {
+      provider: form.provider,
+      anthropic: { api_key: form.anthropic.api_key.trim(), model: form.anthropic.model.trim() },
+      gemini: { api_key: form.gemini.api_key.trim(), model: form.gemini.model.trim() },
+      ollama: { host: form.ollama.host.trim(), model: form.ollama.model.trim() },
+      github_token: form.github_token.trim()
+    };
+    await mosClient.saveSettings(payload);
+    Object.assign(form, payload);
     saved.value = true;
   } catch (e) {
     error.value = e.message;

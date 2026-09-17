@@ -19,15 +19,30 @@ fail() {
   exit 0
 }
 
+# See ai-template-maker-analyze's identical helper - guards against a
+# stray leading/trailing space (easy via copy-paste) silently breaking
+# the exact/prefix match below even when the model is actually pulled.
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
 command -v jq >/dev/null 2>&1 || fail "jq is required on the MOS host"
 command -v curl >/dev/null 2>&1 || fail "curl is required on the MOS host"
 
-host="${1:-}"
+host="$(trim "${1:-}")"
 [[ -n "$host" ]] || fail "An Ollama host is required"
-model="${2:-}"
+model="$(trim "${2:-}")"
 
-response=$(curl -sf --connect-timeout 5 --max-time 10 "${host%/}/api/tags") \
-  || fail "Could not reach Ollama at ${host} - is it running and reachable from the MOS host?"
+err_file=$(mktemp)
+response=$(curl -sf --connect-timeout 5 --max-time 10 "${host%/}/api/tags" 2>"$err_file")
+curl_exit=$?
+curl_err=$(cat "$err_file" 2>/dev/null)
+rm -f "$err_file"
+[[ $curl_exit -eq 0 ]] \
+  || fail "Could not reach Ollama at ${host} (curl exit ${curl_exit}${curl_err:+: ${curl_err}}) - is it running and reachable from the MOS host?"
 
 echo "$response" | jq empty 2>/dev/null || fail "Ollama responded, but not with valid JSON - is ${host} actually an Ollama server?"
 
