@@ -1410,13 +1410,15 @@ var _sfc_main$1 = {
 		async function testOllama() {
 			testingOllama.value = true;
 			ollamaTestResult.value = null;
+			const host = form.ollama.host.trim();
+			const modelName = form.ollama.model.trim();
 			try {
-				const result = await mosClient.testOllamaConnection(form.ollama.host, form.ollama.model);
+				const result = await mosClient.testOllamaConnection(host, modelName);
 				if (result.model_found === false) {
 					const available = result.models.length ? result.models.join(", ") : "none";
 					ollamaTestResult.value = {
 						type: "warning",
-						message: `Connected, but "${form.ollama.model}" isn't pulled on that host yet. Available: ${available}.`
+						message: `Connected, but "${modelName}" isn't pulled on that host yet. Available: ${available}.`
 					};
 				} else ollamaTestResult.value = {
 					type: "success",
@@ -1451,7 +1453,24 @@ var _sfc_main$1 = {
 			saved.value = false;
 			error.value = "";
 			try {
-				await mosClient.saveSettings({ ...form });
+				const payload = {
+					provider: form.provider,
+					anthropic: {
+						api_key: form.anthropic.api_key.trim(),
+						model: form.anthropic.model.trim()
+					},
+					gemini: {
+						api_key: form.gemini.api_key.trim(),
+						model: form.gemini.model.trim()
+					},
+					ollama: {
+						host: form.ollama.host.trim(),
+						model: form.ollama.model.trim()
+					},
+					github_token: form.github_token.trim()
+				};
+				await mosClient.saveSettings(payload);
+				Object.assign(form, payload);
 				saved.value = true;
 			} catch (e) {
 				error.value = e.message;
