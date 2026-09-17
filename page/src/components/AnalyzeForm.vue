@@ -20,8 +20,7 @@
       />
 
       <v-alert v-if="analyzing" type="info" variant="tonal" density="compact" class="mt-2">
-        Analyzing{{ elapsedLabel }} — a local Ollama model can take several minutes with no GPU;
-        this keeps waiting until it finishes.
+        Analyzing with {{ providerLabel || "your configured provider" }}{{ elapsedLabel }}{{ analyzingHint }}
       </v-alert>
 
       <div class="mt-2">
@@ -68,8 +67,26 @@ const result = ref(null);
 const dialogOpen = ref(false);
 const showInstalledSnackbar = ref(false);
 const elapsedSeconds = ref(0);
+const currentProvider = ref("");
 
 const elapsedLabel = computed(() => (elapsedSeconds.value > 0 ? ` (${elapsedSeconds.value}s)` : ""));
+const providerLabel = computed(() => {
+  switch (currentProvider.value) {
+    case "gemini":
+      return "Google Gemini";
+    case "ollama":
+      return "Ollama (local)";
+    case "anthropic":
+      return "Anthropic (Claude)";
+    default:
+      return "";
+  }
+});
+const analyzingHint = computed(() =>
+  currentProvider.value === "ollama"
+    ? " — a local model can take several minutes with no GPU; this keeps waiting until it finishes."
+    : " — this is usually quick."
+);
 
 let controller = null;
 
@@ -77,9 +94,23 @@ async function analyze() {
   analyzing.value = true;
   error.value = "";
   elapsedSeconds.value = 0;
+  currentProvider.value = "";
   controller = new AbortController();
   const startedAt = Date.now();
   try {
+    // Re-fetched fresh on every run, not cached from mount: the Analyze
+    // and Settings tabs share one always-mounted component tree (v-window
+    // keeps tab contents alive), so a provider switch made in Settings
+    // after this component first loaded wouldn't otherwise be reflected
+    // here even though the backend script itself always reads the current
+    // settings.json regardless.
+    try {
+      const settings = await mosClient.getSettings();
+      currentProvider.value = settings?.provider || "anthropic";
+    } catch {
+      currentProvider.value = "";
+    }
+
     const data = await mosClient.analyzeRepo(repoUrl.value.trim(), {
       scope: scope.value,
       signal: controller.signal,
