@@ -1004,15 +1004,32 @@ var _sfc_main$3 = {
 		const dialogOpen = ref$3(false);
 		const showInstalledSnackbar = ref$3(false);
 		const elapsedSeconds = ref$3(0);
+		const currentProvider = ref$3("");
 		const elapsedLabel = computed(() => elapsedSeconds.value > 0 ? ` (${elapsedSeconds.value}s)` : "");
+		const providerLabel = computed(() => {
+			switch (currentProvider.value) {
+				case "gemini": return "Google Gemini";
+				case "ollama": return "Ollama (local)";
+				case "anthropic": return "Anthropic (Claude)";
+				default: return "";
+			}
+		});
+		const analyzingHint = computed(() => currentProvider.value === "ollama" ? " — a local model can take several minutes with no GPU; this keeps waiting until it finishes." : " — this is usually quick.");
 		let controller = null;
 		async function analyze() {
 			analyzing.value = true;
 			error.value = "";
 			elapsedSeconds.value = 0;
+			currentProvider.value = "";
 			controller = new AbortController();
 			const startedAt = Date.now();
 			try {
+				try {
+					const settings = await mosClient.getSettings();
+					currentProvider.value = settings?.provider || "anthropic";
+				} catch {
+					currentProvider.value = "";
+				}
 				const data = await mosClient.analyzeRepo(repoUrl.value.trim(), {
 					scope: scope.value,
 					signal: controller.signal,
@@ -1076,7 +1093,7 @@ var _sfc_main$3 = {
 								density: "compact",
 								class: "mt-2"
 							}, {
-								default: _withCtx$3(() => [_createTextVNode$3(" Analyzing" + _toDisplayString$2(elapsedLabel.value) + " — a local Ollama model can take several minutes with no GPU; this keeps waiting until it finishes. ", 1)]),
+								default: _withCtx$3(() => [_createTextVNode$3(" Analyzing with " + _toDisplayString$2(providerLabel.value || "your configured provider") + _toDisplayString$2(elapsedLabel.value) + _toDisplayString$2(analyzingHint.value), 1)]),
 								_: 1
 							})) : _createCommentVNode$2("", true),
 							_createElementVNode$3("div", _hoisted_1$1, [
