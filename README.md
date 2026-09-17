@@ -86,7 +86,13 @@ identically, since a job/history file written by one has to be found by the othe
   (`ollama_num_ctx` in the script, default 16384) - left unset, Ollama silently falls back to a
   model's Modelfile default context window, often just 2048-4096 tokens, which is well under
   what the system prompt plus a real README/Dockerfile/compose/env can need, causing silent
-  truncation of the actual repo content regardless of which model is configured.
+  truncation of the actual repo content regardless of which model is configured. `call_openai()`
+  also uses its own larger completion budget (`openai_budget`, default 16384, separate from the
+  shared `$budget` the other three use) and specifically detects a reasoning model that spent its
+  whole budget on a `reasoning_content` field and hit the length limit before ever writing to
+  `content` - reasoning-capable local models (Qwen3, DeepSeek-R1, QwQ, etc.) are common on
+  exactly the kind of self-hosted server this provider also covers, and without this check that
+  failure just looked like a generic, unexplained "returned no content".
 - **`settings.json`** — default plugin settings: a `provider`
   (`anthropic`/`gemini`/`ollama`/`openai`) plus each provider's own config block (API key/model
   for Anthropic/Gemini; host/model for Ollama; a configurable `base_url` plus optional API

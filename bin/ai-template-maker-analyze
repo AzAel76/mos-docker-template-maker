@@ -442,6 +442,18 @@ budget=8192
 # more, this is the one place to raise it.
 ollama_num_ctx=16384
 
+# OpenAI-compatible-only: a separate, larger completion budget than the
+# shared $budget above. Reasoning-capable models (Qwen3, DeepSeek-R1, QwQ,
+# etc.) are common on exactly the kind of local/self-hosted server this
+# provider is meant to also cover, and many of them emit their entire
+# chain-of-thought into a separate "reasoning_content" field before ever
+# writing to "content" - on a prompt this size (system prompt plus a full
+# README/Dockerfile/compose/env), that reasoning trace alone can exceed
+# 8192 tokens, leaving "content" empty and finish_reason "length" with no
+# indication of why (see the reasoning_content check in call_openai below
+# for what happens when even this isn't enough).
+openai_budget=16384
+
 # claude-sonnet-5 runs adaptive extended thinking by default, which prepends
 # a "thinking" content block before the "text" block - max_tokens covers
 # both, and content[0] is the thinking block, not the answer. Request
@@ -606,7 +618,7 @@ call_openai() {
   fi
 
   request_body=$(jq -n \
-    --arg model "$model" --argjson budget "$budget" \
+    --arg model "$model" --argjson budget "$openai_budget" \
     --arg system "$system_prompt" --arg user "$user_content" \
     '{
       model: $model,
@@ -637,7 +649,25 @@ call_openai() {
   fi
 
   raw_text=$(echo "$response" | jq -r '.choices[0].message.content // empty')
-  [[ -n "$raw_text" ]] || fail "OpenAI-compatible server returned no content: $(echo "$response" | jq -c '.error // .' 2>/dev/null)"
+  if [[ -z "$raw_text" ]]; then
+    local finish_reason reasoning_content
+    finish_reason=$(echo "$response" | jq -r '.choices[0].finish_reason // empty')
+    # Reasoning-capable models (common on local/self-hosted servers) often
+    # emit their whole chain-of-thought into this field, separate from
+    # "content" - if it's non-empty while "content" is empty and the
+    # response was cut off for hitting the token limit, the model spent its
+    # entire budget "thinking" and never got to actually write an answer.
+    # That's a specific, fixable situation (bigger budget or a less
+    # verbose/non-reasoning model), not a generic "no content" failure.
+    reasoning_content=$(echo "$response" | jq -r '.choices[0].message.reasoning_content // empty')
+    if [[ "$finish_reason" == "length" && -n "$reasoning_content" ]]; then
+      fail "The model spent its entire ${openai_budget}-token budget \"thinking\" (reasoning_content) and hit the length limit before ever writing an answer to \"content\". Common with reasoning models on a prompt this size - try a less verbose/non-reasoning model, or one that reasons more efficiently."
+    fi
+    if [[ "$finish_reason" == "length" ]]; then
+      fail "OpenAI-compatible server's response was truncated (hit the ${openai_budget}-token limit) before finishing the template"
+    fi
+    fail "OpenAI-compatible server returned no content: $(echo "$response" | jq -c '.error // .' 2>/dev/null)"
+  fi
 }
 
 case "$provider" in
