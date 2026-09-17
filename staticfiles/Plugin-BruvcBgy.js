@@ -229,6 +229,21 @@ var mosClient = {
 			return [];
 		}
 	},
+	async testOllamaConnection(host, model) {
+		const res = await request("/mos/plugins/query", {
+			method: "POST",
+			body: {
+				command: "ai-template-maker-test-ollama",
+				args: model ? [host, model] : [host],
+				timeout: 15,
+				parse_json: true
+			}
+		});
+		if (!res.success) throw new Error(typeof res.output === "string" ? res.output : `Could not test connection (exit ${res.exit_code})`);
+		if (!res.output || typeof res.output !== "object") throw new Error("Test script did not return valid JSON");
+		if (!res.output.ok) throw new Error(res.output.error || "Connection test failed");
+		return res.output;
+	},
 	createStack({ name, yaml, env, icon, webui, autostart = false, no_autoupdate = false }) {
 		return request("/docker/mos/compose/stacks", {
 			method: "POST",
@@ -1384,9 +1399,38 @@ var _sfc_main$1 = {
 		const saving = ref$1(false);
 		const saved = ref$1(false);
 		const error = ref$1("");
+		const testingOllama = ref$1(false);
+		const ollamaTestResult = ref$1(null);
 		watch(() => form.provider, (p) => {
 			openPanel.value = p;
 		});
+		watch(() => [form.ollama.host, form.ollama.model], () => {
+			ollamaTestResult.value = null;
+		});
+		async function testOllama() {
+			testingOllama.value = true;
+			ollamaTestResult.value = null;
+			try {
+				const result = await mosClient.testOllamaConnection(form.ollama.host, form.ollama.model);
+				if (result.model_found === false) {
+					const available = result.models.length ? result.models.join(", ") : "none";
+					ollamaTestResult.value = {
+						type: "warning",
+						message: `Connected, but "${form.ollama.model}" isn't pulled on that host yet. Available: ${available}.`
+					};
+				} else ollamaTestResult.value = {
+					type: "success",
+					message: `Connected. ${result.models.length} model(s) available.`
+				};
+			} catch (e) {
+				ollamaTestResult.value = {
+					type: "error",
+					message: e.message
+				};
+			} finally {
+				testingOllama.value = false;
+			}
+		}
 		onMounted(async () => {
 			try {
 				const settings = await mosClient.getSettings();
@@ -1423,10 +1467,10 @@ var _sfc_main$1 = {
 			const _component_v_text_field = _resolveComponent$1("v-text-field");
 			const _component_v_expansion_panel_text = _resolveComponent$1("v-expansion-panel-text");
 			const _component_v_expansion_panel = _resolveComponent$1("v-expansion-panel");
+			const _component_v_btn = _resolveComponent$1("v-btn");
 			const _component_v_expansion_panels = _resolveComponent$1("v-expansion-panels");
 			const _component_v_card_text = _resolveComponent$1("v-card-text");
 			const _component_v_spacer = _resolveComponent$1("v-spacer");
-			const _component_v_btn = _resolveComponent$1("v-btn");
 			const _component_v_card_actions = _resolveComponent$1("v-card-actions");
 			const _component_v_card = _resolveComponent$1("v-card");
 			return _openBlock$1(), _createBlock$1(_component_v_card, { flat: "" }, {
@@ -1581,7 +1625,7 @@ var _sfc_main$1 = {
 												default: _withCtx$1(() => [..._cache[20] || (_cache[20] = [_createTextVNode$1(" Completely free and private — no API key, nothing leaves your network. The tradeoff: it's noticeably slower than a cloud API (especially without a GPU), and small local models are less reliable at producing this whole schema correctly in one shot. A slow model can also exceed MOS's 60-second query timeout, in which case the analysis just fails. ", -1)])]),
 												_: 1
 											}),
-											_cache[21] || (_cache[21] = _createElementVNode$1("div", { class: "text-caption text-medium-emphasis mb-3" }, [
+											_cache[22] || (_cache[22] = _createElementVNode$1("div", { class: "text-caption text-medium-emphasis mb-3" }, [
 												_createElementVNode$1("strong", null, "Setup:"),
 												_createTextVNode$1(" install Ollama (ollama.com) on a machine reachable from this MOS host → run "),
 												_createElementVNode$1("code", null, "ollama pull llama3.1"),
@@ -1600,8 +1644,29 @@ var _sfc_main$1 = {
 												"onUpdate:modelValue": _cache[6] || (_cache[6] = ($event) => form.ollama.model = $event),
 												label: "Model",
 												hint: "must already be pulled on that host",
-												"persistent-hint": ""
-											}, null, 8, ["modelValue"])
+												"persistent-hint": "",
+												class: "mb-2"
+											}, null, 8, ["modelValue"]),
+											ollamaTestResult.value ? (_openBlock$1(), _createBlock$1(_component_v_alert, {
+												key: 0,
+												type: ollamaTestResult.value.type,
+												variant: "tonal",
+												density: "compact",
+												class: "mb-2"
+											}, {
+												default: _withCtx$1(() => [_createTextVNode$1(_toDisplayString(ollamaTestResult.value.message), 1)]),
+												_: 1
+											}, 8, ["type"])) : _createCommentVNode("", true),
+											_createVNode$1(_component_v_btn, {
+												variant: "tonal",
+												size: "small",
+												loading: testingOllama.value,
+												disabled: !form.ollama.host,
+												onClick: testOllama
+											}, {
+												default: _withCtx$1(() => [..._cache[21] || (_cache[21] = [_createTextVNode$1(" Test connection ", -1)])]),
+												_: 1
+											}, 8, ["loading", "disabled"])
 										]),
 										_: 1
 									})]),
@@ -1626,7 +1691,7 @@ var _sfc_main$1 = {
 						loading: saving.value,
 						onClick: save
 					}, {
-						default: _withCtx$1(() => [..._cache[22] || (_cache[22] = [_createTextVNode$1("Save", -1)])]),
+						default: _withCtx$1(() => [..._cache[23] || (_cache[23] = [_createTextVNode$1("Save", -1)])]),
 						_: 1
 					}, 8, ["loading"])]),
 					_: 1
