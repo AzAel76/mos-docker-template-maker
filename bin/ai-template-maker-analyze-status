@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Invoked via MOS's synchronous plugin query endpoint:
+#   POST /mos/plugins/query {command:"ai-template-maker-analyze-status", args:[jobId], parse_json:true}
+#
+# Polled by the frontend after ai-template-maker-analyze-start returns a
+# job id, every couple of seconds until the job is done or errored. Always
+# fast (just file reads) - never itself at risk of the 60s query ceiling
+# that made ai-template-maker-analyze-start necessary in the first place.
+#
+# Prints one of:
+#   {"status":"running"}
+#   {"status":"done","result":{...whatever ai-template-maker-analyze printed...}}
+#   {"status":"error","error":"..."}
+# On a malformed request (missing/invalid job id), prints {"error":"..."}
+# instead - the frontend distinguishes these the same way it already does
+# for ai-template-maker-analyze's own top-level failures.
+#
+# Must live at /usr/bin/plugins/ai-template-maker-analyze-status on the
+# MOS host, alongside ai-template-maker-analyze-start.
+set -uo pipefail
+
+PLUGIN_NAME="ai-template-maker"
+JOBS_DIR="/boot/optional/plugins/${PLUGIN_NAME}/jobs"
+
+fail() {
+  jq -n --arg msg "$1" '{error:$msg}'
+  exit 0
+}
+
+command -v jq >/dev/null 2>&1 || fail "jq is required on the MOS host"
+
+job_id="${1:-}"
+[[ -n "$job_id" ]] || fail "A job id is required"
+# job_id is always our own "<digits>_<digits>" (see analyze-start) - reject
+# anything else outright rather than letting a crafted value anywhere near
+# a path (this is the only thing standing between an arbitrary caller-
+# supplied string and $JOBS_DIR/$job_id below).
+[[ "$job_id" =~ ^[0-9]+_[0-9]+$ ]] || fail "Invalid job id"
+
+job_dir="${JOBS_DIR}/${job_id}"
+[[ -d "$job_dir" ]] || fail "Unknown or expired job"
+
+status=$(cat "$job_dir/status" 2>/dev/null || echo "error")
+
+case "$status" in
+  running)
+    jq -n '{status:"running"}'
+    ;;
+  done)
+    # ai-template-maker-analyze always exits 0 and signals its own
+    # application-level failures via an {"error":...} object rather than a
+    # non-zero exit (see its header comment) - that comes through here as
+    # a normal "done" result, and the frontend already knows to check for
+    # an "error" key in it.
+    if [[ -f "$job_dir/result.json" ]] && jq empty "$job_dir/result.json" >/dev/null 2>&1; then
+      jq --slurpfile r "$job_dir/result.json" -n '{status:"done", result:$r[0]}'
+    else
+      jq -n '{status:"error", error:"Job finished but produced no valid result"}'
+    fi
+    ;;
+  *)
+    # Only reached if ai-template-maker-analyze itself crashed outright
+    # (e.g. an unbound-variable/pipefail error) rather than failing
+    # normally - surface whatever it printed to stderr as a best effort.
+    err_msg=$(tail -c 500 "$job_dir/error.log" 2>/dev/null)
+    jq -n --arg msg "${err_msg:-Analysis failed unexpectedly}" '{status:"error", error:$msg}'
+    ;;
+esac

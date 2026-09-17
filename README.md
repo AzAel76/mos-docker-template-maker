@@ -26,7 +26,17 @@ Hub-style install dialog before deploying.
   the MOS host via the release `.deb` (see below). It fetches a repo's README/Dockerfile
   /compose/.env, sends them to the configured provider with the MOS template schema,
   resolves an icon, appends an entry to the history file, and prints the resulting
-  template as JSON. Invoked synchronously via `POST /mos/plugins/query`.
+  template as JSON. Not called directly from the frontend (see below) — still directly
+  runnable for manual testing.
+- **`bin/ai-template-maker-analyze-start`** / **`bin/ai-template-maker-analyze-status`** —
+  the frontend actually calls `-start`, which launches the real analysis (the script above)
+  as a detached background job and returns a job id almost instantly, then polls `-status`
+  every couple of seconds until it's done. This exists because analysis can comfortably
+  exceed MOS's 60-second synchronous query ceiling — seen in practice on Ollama with a
+  modest model/no GPU — and that ceiling isn't adjustable (MOS clamps it to 60s both
+  client- and server-side, and its only other execution primitive is fire-and-forget with
+  no way to return a result). Job state lives under
+  `/boot/optional/plugins/ai-template-maker/jobs/<job-id>/` and self-prunes after an hour.
 - **`bin/ai-template-maker-history`** — a bash script, installed alongside the above, that
   serves the history file (`list`) or resets it (`clear`) for the History tab.
 - **`settings.json`** — default plugin settings: a `provider` (`anthropic`/`gemini`/`ollama`)

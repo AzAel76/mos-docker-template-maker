@@ -19,6 +19,11 @@
         @keyup.enter="analyze"
       />
 
+      <v-alert v-if="analyzing" type="info" variant="tonal" density="compact" class="mt-2">
+        Analyzing{{ elapsedLabel }} — a local Ollama model can take several minutes with no GPU;
+        this keeps waiting until it finishes.
+      </v-alert>
+
       <div class="mt-2">
         <div class="text-body-2 text-medium-emphasis mb-1">Template scope</div>
         <v-btn-toggle v-model="scope" color="primary" density="comfortable" mandatory variant="outlined" :disabled="analyzing" divided>
@@ -36,6 +41,7 @@
     </v-card-text>
     <v-card-actions>
       <v-spacer />
+      <v-btn v-if="analyzing" variant="text" @click="cancel">Cancel</v-btn>
       <v-btn color="primary" :loading="analyzing" :disabled="!repoUrl" @click="analyze">
         Analyze
       </v-btn>
@@ -50,7 +56,7 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import InstallDialog from "./InstallDialog.vue";
 import { mosClient } from "../api/mosClient.js";
 
@@ -61,19 +67,38 @@ const error = ref("");
 const result = ref(null);
 const dialogOpen = ref(false);
 const showInstalledSnackbar = ref(false);
+const elapsedSeconds = ref(0);
+
+const elapsedLabel = computed(() => (elapsedSeconds.value > 0 ? ` (${elapsedSeconds.value}s)` : ""));
+
+let controller = null;
 
 async function analyze() {
   analyzing.value = true;
   error.value = "";
+  elapsedSeconds.value = 0;
+  controller = new AbortController();
+  const startedAt = Date.now();
   try {
-    const data = await mosClient.analyzeRepo(repoUrl.value.trim(), { scope: scope.value });
+    const data = await mosClient.analyzeRepo(repoUrl.value.trim(), {
+      scope: scope.value,
+      signal: controller.signal,
+      onTick: () => {
+        elapsedSeconds.value = Math.round((Date.now() - startedAt) / 1000);
+      }
+    });
     result.value = data;
     dialogOpen.value = true;
   } catch (e) {
-    error.value = e.message;
+    if (e.name !== "AbortError") error.value = e.message;
   } finally {
     analyzing.value = false;
+    controller = null;
   }
+}
+
+function cancel() {
+  controller?.abort();
 }
 
 function onInstalled() {

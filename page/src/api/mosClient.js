@@ -48,6 +48,7 @@ async function request(path, { method = "GET", body } = {}) {
 }
 
 const PLUGIN_NAME = "ai-template-maker";
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const mosClient = {
   getSettings() {
@@ -56,40 +57,74 @@ export const mosClient = {
   saveSettings(settings) {
     return request(`/mos/plugins/settings/${PLUGIN_NAME}`, { method: "POST", body: settings });
   },
-  async analyzeRepo(repoUrl, { timeout = 60, scope = "required" } = {}) {
-    // POST /mos/plugins/query wraps the script's stdout in
-    // {success, output, exit_code, duration_ms, timed_out} - `output` is
-    // the parsed JSON (parse_json: true) our script printed. The script
-    // itself always exits 0 and signals its own failures via an "error"
-    // key in that JSON (see bin/ai-template-maker-analyze) because MOS
-    // discards stdout on a non-zero exit - so `success: false` here means
-    // something MOS-level went wrong (command missing, genuinely crashed),
-    // not a normal "analysis failed" case.
-    // scope: "required" (default - only what's needed to run) or "all"
-    // (every setting found) - passed straight through as the script's 2nd arg.
-    const res = await request("/mos/plugins/query", {
+  async analyzeRepo(repoUrl, { scope = "required", pollIntervalMs = 2500, maxWaitMs = 10 * 60 * 1000, signal, onTick } = {}) {
+    // Analysis can comfortably exceed MOS's 60s synchronous query ceiling
+    // (seen in practice on Ollama with a modest model/no GPU), and that
+    // ceiling isn't adjustable - so this doesn't call the analyze script
+    // directly. Instead: ai-template-maker-analyze-start kicks the real
+    // work off as a detached background job and returns a job id almost
+    // instantly, then this polls ai-template-maker-analyze-status until
+    // the job is done or errored. Both calls use the same
+    // {success, output, exit_code, duration_ms, timed_out} query envelope
+    // as before; `output` is each script's own parsed JSON.
+    const startRes = await request("/mos/plugins/query", {
       method: "POST",
-      body: {
-        command: "ai-template-maker-analyze",
-        args: [repoUrl, scope],
-        timeout: Math.min(timeout, 60),
-        parse_json: true
-      }
+      body: { command: "ai-template-maker-analyze-start", args: [repoUrl, scope], timeout: 15, parse_json: true }
     });
+    if (!startRes.success) {
+      throw new Error(typeof startRes.output === "string" ? startRes.output : `Could not start analysis (exit ${startRes.exit_code})`);
+    }
+    if (startRes.output?.error) {
+      throw new Error(startRes.output.error);
+    }
+    const jobId = startRes.output?.job_id;
+    if (!jobId) {
+      throw new Error("Could not start analysis (no job id returned)");
+    }
 
-    if (res.timed_out) {
-      throw new Error(`Analysis timed out after ${res.duration_ms}ms (60s max)`);
+    const deadline = Date.now() + maxWaitMs;
+    for (;;) {
+      if (signal?.aborted) {
+        throw new DOMException("Analysis cancelled", "AbortError");
+      }
+      if (Date.now() > deadline) {
+        throw new Error(
+          `Still running after ${Math.round(maxWaitMs / 60000)} minutes - it may finish in the background ` +
+            "on a slow local model; check the History tab shortly, or try again with a faster provider."
+        );
+      }
+      await sleep(pollIntervalMs);
+      onTick?.();
+
+      const statusRes = await request("/mos/plugins/query", {
+        method: "POST",
+        body: { command: "ai-template-maker-analyze-status", args: [jobId], timeout: 15, parse_json: true }
+      });
+      if (!statusRes.success) {
+        throw new Error(typeof statusRes.output === "string" ? statusRes.output : `Could not check analysis status (exit ${statusRes.exit_code})`);
+      }
+      const out = statusRes.output;
+      if (out?.error) {
+        throw new Error(out.error);
+      }
+      if (out?.status === "running") {
+        continue;
+      }
+      if (out?.status === "error") {
+        throw new Error(out.error || "Analysis failed");
+      }
+      if (out?.status === "done") {
+        const result = out.result;
+        if (result && typeof result === "object" && result.error) {
+          throw new Error(result.error);
+        }
+        if (!result || typeof result !== "object") {
+          throw new Error("Analysis script did not return valid JSON");
+        }
+        return result;
+      }
+      throw new Error("Unexpected response while checking analysis status");
     }
-    if (!res.success) {
-      throw new Error(typeof res.output === "string" ? res.output : `Analysis failed (exit ${res.exit_code})`);
-    }
-    if (res.output && typeof res.output === "object" && res.output.error) {
-      throw new Error(res.output.error);
-    }
-    if (typeof res.output !== "object") {
-      throw new Error("Analysis script did not return valid JSON");
-    }
-    return res.output;
   },
   createContainer(template) {
     return request("/docker/mos/create", { method: "POST", body: template });

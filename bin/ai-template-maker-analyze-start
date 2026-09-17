@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Invoked via MOS's synchronous plugin query endpoint:
+#   POST /mos/plugins/query {command:"ai-template-maker-analyze-start", args:[repoUrl, scope], parse_json:true}
+#
+# Kicks off the real analysis (ai-template-maker-analyze - unchanged,
+# still directly runnable for manual testing) as a detached background
+# process and returns {"job_id":"..."} immediately. Exists because
+# ai-template-maker-analyze can comfortably exceed MOS's 60-second
+# synchronous query ceiling (seen in practice on Ollama with a modest
+# model/no GPU) and there is no way to raise that ceiling - MOS clamps
+# query timeouts to 60s both client- and server-side, and its only other
+# execution primitive (/mos/plugins/executefunction) is fire-and-forget
+# with no way to return a result to the caller. Poll
+# ai-template-maker-analyze-status with the returned job id instead.
+#
+# Must live at /usr/bin/plugins/ai-template-maker-analyze-start on the
+# MOS host, alongside ai-template-maker-analyze itself.
+set -uo pipefail
+
+PLUGIN_NAME="ai-template-maker"
+JOBS_DIR="/boot/optional/plugins/${PLUGIN_NAME}/jobs"
+ANALYZE_BIN="/usr/bin/plugins/${PLUGIN_NAME}-analyze"
+
+fail() {
+  jq -n --arg msg "$1" '{error:$msg}'
+  exit 0
+}
+
+command -v jq >/dev/null 2>&1 || fail "jq is required on the MOS host"
+[[ -x "$ANALYZE_BIN" ]] || fail "${ANALYZE_BIN} not found or not executable"
+
+repo_url="${1:-}"
+[[ -n "$repo_url" ]] || fail "A repository URL is required"
+scope="${2:-required}"
+
+mkdir -p "$JOBS_DIR" 2>/dev/null || fail "Could not create the plugin's jobs directory"
+
+# Prune job directories older than an hour so this never grows unbounded -
+# every real analysis (even a slow local model) finishes in minutes, not an
+# hour, and ai-template-maker-analyze-status treats a missing job dir as
+# "unknown job" rather than erroring, so this is safe to do on every start.
+find "$JOBS_DIR" -mindepth 1 -maxdepth 1 -type d -mmin +60 -exec rm -rf {} + 2>/dev/null
+
+job_id="$(date +%s%N)_$$"
+job_dir="${JOBS_DIR}/${job_id}"
+mkdir -p "$job_dir" || fail "Could not create job directory"
+echo "running" > "$job_dir/status"
+
+# Detach fully from this script's own stdin/stdout/stderr before
+# backgrounding: MOS's query executor (Node's child_process.exec) only
+# considers this command finished once those file descriptors reach EOF,
+# which won't happen while a backgrounded child still holds a copy of
+# them open - even after this script's own foreground part has exited.
+(
+  if "$ANALYZE_BIN" "$repo_url" "$scope" > "$job_dir/result.json.tmp" 2>"$job_dir/error.log"; then
+    mv "$job_dir/result.json.tmp" "$job_dir/result.json"
+    echo "done" > "$job_dir/status"
+  else
+    echo "error" > "$job_dir/status"
+  fi
+) < /dev/null > /dev/null 2>&1 &
+disown
+
+jq -n --arg id "$job_id" '{job_id: $id}'
