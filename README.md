@@ -222,3 +222,7 @@ needed) to test a different provider standalone.
 Early scaffold — see `samples/` for real MOS template examples used as the schema
 reference, and the project plan for what's left before this is installable on a real
 MOS box.
+
+## License
+
+[MIT](LICENSE)
