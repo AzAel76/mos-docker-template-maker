@@ -3,3 +3,8 @@ page/dist/
 deb-build/
 *.deb
 *.deb.md5
+.env
+.env.*
+!.env.example
+*.secret
+CLAUDE.local.md
